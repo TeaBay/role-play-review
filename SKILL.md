@@ -1,10 +1,11 @@
 ---
 name: role-play-review
-description: |
-  Generic recursive role-play review framework. Dynamically generates expert reviewer roles, parallel review, roundtable consensus, auto-fix loop.
+description: "Generic recursive role-play review framework. Dynamically generates expert reviewer roles, runs them in parallel, holds a roundtable debate, then auto-fixes issues in a loop. Use for code reviews, game scripts, API design, or any content needing multiple expert perspectives."
 license: MIT
 metadata:
-  version: "1.0.0"
+  author: TeaBay
+  version: "1.1.0"
+  compatibility: "Claude Code"
 ---
 
 # Role-Play Review (RPR)
