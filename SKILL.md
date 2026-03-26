@@ -2,6 +2,9 @@
 name: role-play-review
 description: |
   Generic recursive role-play review framework. Dynamically generates expert reviewer roles, parallel review, roundtable consensus, auto-fix loop.
+license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Role-Play Review (RPR)
