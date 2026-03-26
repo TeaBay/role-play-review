@@ -4,7 +4,7 @@ A Claude Code skill that reviews any content through dynamically generated exper
 
 ## How It Works
 
-1. **Role Discovery** — Analyzes your content, generates a roster of expert reviewers (2-12 depending on complexity), each with a distinct personality, focus area, and scoring dimensions
+1. **Role Discovery** — Analyzes your content, generates a roster of expert reviewers (3-20 depending on complexity), each with a distinct personality, focus area, and scoring dimensions
 2. **Parallel Review** — All reviewers examine the content simultaneously, producing structured findings with severity ratings and fix suggestions
 3. **Roundtable** — Failing reviewers debate findings (AGREE / DISAGREE / COMPROMISE / CHALLENGE), revise scores
 4. **Auto-fix** — Applies fixes from ERROR and WARNING findings directly to your files
@@ -13,7 +13,7 @@ A Claude Code skill that reviews any content through dynamically generated exper
 ## Features
 
 - Generic — works on any content type (code, writing, game scripts, configs, etc.)
-- Recursive sub-agent spawning (depth-limited, globally capped at 10)
+- Recursive sub-agent spawning (depth-limited, globally capped at 30)
 - Conflict detection for overlapping fixes
 - Regression detection across rounds
 - Three auto-fix modes: `on` (automatic), `safe` (confirm before applying), `off`
@@ -53,12 +53,12 @@ Then provide the scope of what you want reviewed. RPR will generate the appropri
 
 ```
 ROUND 3/5:
-| Reviewer          | Score | ERROR | WARNING | SUGGESTION | Status |
-|-------------------|-------|-------|---------|------------|--------|
-| 嚴格架構師        | 9     | 0     | 1       | 2          | PASS   |
-| 安全偵探          | 9     | 0     | 0       | 3          | PASS   |
-| 效能狂人          | 10    | 0     | 0       | 1          | PASS   |
-Trend: 嚴格架構師 R1:6 → R2:8 → R3:9 (↑)
+| Reviewer              | Score | ERROR | WARNING | SUGGESTION | Status |
+|-----------------------|-------|-------|---------|------------|--------|
+| The Iron Architect    | 9     | 0     | 1       | 2          | PASS   |
+| Security Hawk         | 9     | 0     | 0       | 3          | PASS   |
+| Performance Obsessive | 10    | 0     | 0       | 1          | PASS   |
+Trend: The Iron Architect R1:6 → R2:8 → R3:9 (↑)
 FIXES: 12 APPLIED, 0 FIX_FAILED, 0 CONFLICT, 1 DEFERRED
 ```
 
