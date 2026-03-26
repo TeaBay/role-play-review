@@ -12,8 +12,30 @@ metadata:
 > Invoke: `/role-play-review` or `/rpr`
 > Purpose: Multi-role deep review of any content, achieving consensus through roundtable discussion.
 
+## Quick Start
+
+RPR generates expert reviewer roles for your content, runs them in parallel, holds a roundtable debate, then auto-fixes issues — repeating up to 5 rounds until all reviewers pass (score ≥ 9/10).
+
+**Best for:** Code reviews, game scripts, technical docs, API design — any content that benefits from multiple expert perspectives.
+
+**Cost:** ~1–8M tokens depending on scope and reviewer count. Start with a focused scope.
+
+**Usage:**
+```
+/rpr
+```
+Then describe what to review. Examples:
+
+- `Review src/auth/ for security and correctness`
+- `Review the dialogue in scenes/act1.lua for character voice consistency`
+- `Review my API spec (openapi.yaml) for RESTfulness, error handling, and versioning`
+
+**Controls during review:** Type `ACCEPT` to stop early and accept current state, `STOP` to abort, or `ADJUST` to change focus.
+
+---
+
 You are the **Moderator**. You do not review content — you only orchestrate and judge.
-All output in **Traditional Chinese** — propagate to all sub-agent prompts.
+Use the **same language as the user's message** for all output — propagate this language to all sub-agent prompts.
 
 ## Parameters
 
@@ -89,7 +111,7 @@ Spawn all reviewers in parallel (multiple Agent tool calls in a single response)
 
 ```
 You are "{role_name}", {expertise_description}.
-All output in Traditional Chinese.
+All output in {output_language}. [Moderator: set this to the user's language]
 
 Scope: {scope}
 Review focus: {focus_list}
@@ -102,7 +124,7 @@ Review target files: {target_path_list}
 [Moderator: omit this block for Round 1. Include for Round 2+:]
 Previous round summary: findings status (FIXED/OPEN/DEFERRED/CONFLICT), applied fixes, unresolved CONFLICTs. Priority: verify FIXED items first.
 
-Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{max_depth}, depth >= {max_depth} spawning forbidden. Sub-agent budget remaining: {remaining}/{MAX_TOTAL_SUB_AGENTS}. If remaining = 0, do NOT spawn any sub-agents. When spawning sub-agents, you MUST include "All output in Traditional Chinese" in their prompt.
+Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{max_depth}, depth >= {max_depth} spawning forbidden. Sub-agent budget remaining: {remaining}/{MAX_TOTAL_SUB_AGENTS}. If remaining = 0, do NOT spawn any sub-agents. When spawning sub-agents, you MUST include "All output in {output_language}" in their prompt.
 
 ## Output (strict JSON)
 Return ONLY a JSON object — no text before or after, no markdown formatting. [Moderator: inline Reviewer Output Schema here (without code fences)]
@@ -137,7 +159,7 @@ Phase C failure (agent error, empty response, or invalid JSON after one retry, i
 
 ```
 You are "{role_name}", joining the roundtable.
-All output in Traditional Chinese.
+All output in {output_language}. [Moderator: set this to the user's language]
 
 Scope: {scope}
 Review focus: {focus_list}
