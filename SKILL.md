@@ -297,7 +297,8 @@ ROUND {N}/{MAX_ROUNDS}:
 | Reviewer | Score | ERROR* | WARNING* | SUGGESTION* | Status |
 |----------|-------|--------|----------|-------------|--------|
 (* open/unresolved count for this reviewer as of this round)
-Status: PASS | FAIL | CARRY | CARRY_UNRESOLVED | TIMEOUT | PARSE_ERROR | ABSENT; round-level flags: PARTIAL_REVIEW, REGRESSION, MINOR_REGRESSION, LOW_SCORE_NO_FIXABLE
+Status: PASS | FAIL | CARRY | CARRY_UNRESOLVED | TIMEOUT | PARSE_ERROR | ABSENT
+[Round flags (if any): PARTIAL_REVIEW | REGRESSION | MINOR_REGRESSION | LOW_SCORE_NO_FIXABLE]
 Trend: {reviewer} R1:X → R2:Y (↑/↓/=)
 FIXES: {N} APPLIED, {N} FIX_FAILED, {N} CONFLICT, {N} DEFERRED
 (auto-continuing next round) | User may type ACCEPT / STOP / ADJUST to intervene
