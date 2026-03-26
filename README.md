@@ -14,10 +14,11 @@ A Claude Code skill that reviews any content through dynamically generated exper
 
 - Generic — works on any content type (code, writing, game scripts, configs, etc.)
 - Recursive sub-agent spawning (depth-limited, globally capped at 30)
+- Automatically responds in the user's language
 - Conflict detection for overlapping fixes
 - Regression detection across rounds
 - Three auto-fix modes: `on` (automatic), `safe` (confirm before applying), `off`
-- Context degradation to manage token usage in later rounds
+- Token-efficient: context degradation from round 2, roundtable transmits only changed findings
 
 ## Install
 
