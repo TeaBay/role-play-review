@@ -36,7 +36,9 @@ Then describe what to review. Examples:
 **Controls during review:**
 - `ACCEPT` — stop early, accept current state
 - `STOP` — abort the review
-- `ADJUST <instruction>` — change focus, add/remove roles, or change AUTO_FIX mode (takes effect next round)
+- `ADJUST <instruction>` — change focus, add/remove roles, change AUTO_FIX mode, or modify scope (takes effect next round)
+  - `ADJUST SCOPE=add:path/to/file` — expand scope to include additional files; re-evaluates prior OUT_OF_SCOPE findings
+  - `ADJUST SCOPE=lock` — finalize scope; discards all OUT_OF_SCOPE findings; prevents further expansion
 
 When ADJUST removes files from scope, existing findings on those files are marked SCOPE_REMOVED and listed in a Moderator message before the next round begins.
 
@@ -67,9 +69,11 @@ MAX_CONFLICT_ROUNDS = 3     // fixed
 - `sub_agent_counter = 0` — counts sub-agents spawned by reviewers (depth-2+); top-level reviewers (depth-1) excluded
 - `open_conflicts = []` — findings with overlapping fix suggestions
 - `open_deferred = []` — findings with vague suggestions
-- `fix_log = []` — all fix attempts with status: APPLIED / FIX_FAILED / CONFLICT / DEFERRED / MANUAL_REQUIRED
+- `fix_log = []` — all fix attempts with status: APPLIED / FIX_FAILED / CONFLICT / DEFERRED / MANUAL_REQUIRED / OUT_OF_SCOPE
 - `modified_files = []` — file paths modified in current round's Phase E. Lifecycle: reset → [] at Phase A start → populated during Phase E → consumed by CARRY_FORWARD at Phase E end. If Phase E is skipped (D7/D8), remains [].
 - `consecutive_zero_applied = 0` — tracks consecutive Phase E rounds with 0 applied fixes; reset on any round with applied > 0
+- `initial_scope_files = set()` — target files from user's review scope; locked at Part 1 end. User may expand via `ADJUST SCOPE=add:path`
+- `out_of_scope_findings = []` — findings with locations outside initial_scope_files; not applied, listed in round summary for user decision
 
 **Session checkpoint**: After each round summary table, Moderator outputs `<!-- RPR_STATE: {compact JSON of all state vars} -->`. If session is interrupted, user pastes the checkpoint to resume. Context degradation rules (below) apply only to reviewer/roundtable prompt content, NOT to Moderator's own state tracking.
 
@@ -103,6 +107,10 @@ Display: role list, severity calibration, auto-fix mode options, estimated time.
 User may add/remove roles, adjust focus, choose auto-fix mode. Proceed to Part 2 after confirmation.
 If user explicitly requests to skip roster review (e.g., "just start", "go", "begin", "proceed", "yes") or responds with only role adjustments implying readiness, apply adjustments and proceed directly.
 
+### 5. Lock Initial Scope
+
+Before entering Part 2, record all **review target files** (from all roles' target_path_list) into `initial_scope_files`. This set is immutable unless user changes it via `ADJUST SCOPE=add:path` or `ADJUST SCOPE=lock` during the review loop. Phase E will check each finding's location against this locked set; findings outside are marked OUT_OF_SCOPE (not applied, listed for user decision).
+
 ---
 
 ## Part 2: Review Loop
@@ -112,7 +120,7 @@ One round = Phase A → B → C → D → E. Auto-loop until all PASS or MAX_ROU
 **Auto-continue**: After summary table, if not all PASS and under MAX_ROUNDS, spawn next round immediately (no pause). If approaching output limits, Moderator may continue in the next turn. Moderator MUST append the line "(auto-continuing next round) | User may type ACCEPT / STOP / ADJUST to intervene" after every round summary table so control options are always visible in-band.
 User may send ACCEPT/STOP/ADJUST between rounds; Moderator never solicits. Exceptions requiring user input (Moderator MUST pause): REGRESSION (Phase B), AUTO_FIX=safe confirmation (Phase E), 0 successful reviewers (Phase B), MAX_ROUNDS reached (Phase D), stagnation early stop (Phase D), only MANUAL_REQUIRED blockers (Phase D), consecutive ABSENT for same reviewer (Phase C).
 
-**ADJUST handler** (when user sends ADJUST mid-run): (1) Acknowledge and describe the change being applied. (2) If files are removed from scope, mark all existing findings scoped to those files as SCOPE_REMOVED and list them. (3) If roles are added/removed, update the reviewer roster for the next round. (4) If AUTO_FIX mode changes, apply immediately. All changes take effect at the start of the next Phase A (current round completes normally).
+**ADJUST handler** (when user sends ADJUST mid-run): (1) Acknowledge and describe the change being applied. (2) If files are removed from scope (`ADJUST SCOPE=lock`), mark all existing findings scoped to removed files as SCOPE_REMOVED and list them. (3) If scope is expanded (`ADJUST SCOPE=add:path`), add paths to initial_scope_files and re-evaluate any OUT_OF_SCOPE findings from prior rounds. (4) If roles are added/removed, update the reviewer roster for the next round. (5) If AUTO_FIX mode changes, apply immediately. Changes (2-4) take effect at the start of the next Phase A (current round completes normally); change (5) applies immediately to any pending AUTO_FIX=safe confirmation.
 
 ### Phase A: Parallel Review
 
@@ -235,6 +243,10 @@ Phase D has no user-confirmation gates (unlike Phase E AUTO_FIX=safe). Escalatio
 
 Collect unresolved ERROR + WARNING findings, sort by severity (ERROR before WARNING); tiebreak by file path then line number.
 
+**Scope locking (up-front, before conflict detection):** Extract `location.file` from each finding and validate against `initial_scope_files`.
+- If `location.file` is IN scope → proceed
+- If `location.file` is OUT OF scope → mark status `OUT_OF_SCOPE`, add to `out_of_scope_findings` list, **skip** (do not apply, do not mark CONFLICT/DEFERRED/FIX_FAILED). OUT_OF_SCOPE findings are listed in the round summary for user decision; they remain open.
+
 **Conflict detection (up-front, before any edits):** Two findings conflict if they target the same file and their location line ranges overlap and both have fix_old + fix_new → mark CONFLICT, skip both. Conflicts are transitive: if A conflicts with B and B conflicts with C, skip all three as a group. If a finding's location is whole-file (file path only, no line range), it conflicts with all other findings in the same file that have fix_old + fix_new. Ranges evaluated on original (pre-edit) line numbers only — do not re-check after edits.
 
 After CONFLICTs are identified and excluded, apply remaining findings in sorted order:
@@ -254,6 +266,25 @@ After CONFLICTs are identified and excluded, apply remaining findings in sorted 
 **AUTO_FIX=safe:** present all proposed fixes as a batch for user confirmation before applying (exception to auto-continue). User may reject individual fixes: rejected fixes are skipped this round and remain open (not counted as FIX_FAILED). If user rejects all fixes for MAX_SAFE_RETRY consecutive rounds, escalate: offer (a) switch to AUTO_FIX=off, (b) manually review specific fixes, or (c) abort. Otherwise treat as 0 applied (see below).
 
 **This round applied fixes = 0** → increment consecutive_zero_applied counter (Moderator state, initialized to 0, reset on any round with applied > 0). If consecutive_zero_applied >= 2 → escalate to user (options: switch AUTO_FIX mode, provide manual fixes, or abort). Otherwise → skip CARRY_FORWARD, carry passed reviewers (status: CARRY), re-spawn all failing reviewers in next Phase A (user's AUTO_FIX setting unchanged for future rounds). Note: unlike D7/D8 which produce CARRY_UNRESOLVED for failing reviewers, this path forces re-spawn to break a stuck fix loop.
+
+**Round summary table** (after Phase E): Display each reviewer's score, ERROR/WARNING/SUGGESTION counts, and a new OUT_OF_SCOPE column. Example:
+```
+| Reviewer           | Score | ERROR | WARNING | OUT_OF_SCOPE | Status |
+|--------------------|-------|-------|---------|--------------|--------|
+| Security Hawk      | 8     | 0     | 1       | 1            | PASS   |
+| Performance Expert | 7     | 1     | 2       | 1            | FAIL   |
+```
+
+If any OUT_OF_SCOPE findings exist, Moderator outputs a summary after the table:
+```
+OUT_OF_SCOPE Findings (awaiting your decision):
+- Security Hawk | ERROR | src/utils/crypto.js:42 | Use constant-time comparison
+- Performance Expert | WARNING | src/cache/redis.js:15 | Cache TTL too long
+
+User options:
+1. ADJUST SCOPE=add:src/utils/,src/cache/ — re-evaluate these files
+2. ADJUST SCOPE=lock — discard these findings, finalize scope
+```
 
 After Phase E, Moderator outputs a modified_files list.
 
