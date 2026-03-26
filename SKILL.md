@@ -4,7 +4,7 @@ description: "Generic recursive role-play review framework. Dynamically generate
 license: MIT
 metadata:
   author: TeaBay
-  version: "1.2.0"
+  version: "1.3.0"
   compatibility: "Claude Code"
 ---
 
@@ -19,7 +19,7 @@ RPR generates expert reviewer roles for your content, runs them in parallel, hol
 
 **Best for:** Code reviews, game scripts, technical docs, API design — any content that benefits from multiple expert perspectives.
 
-**Cost:** ~1–15M tokens. File reading dominates for large codebases (20 reviewers × 5 rounds each re-reading target files). Start with a focused scope to avoid 10M+ runs.
+**Cost:** ~0.5–8M tokens. Diff injection from Round 2 eliminates redundant file re-reading. Start with a focused scope to minimize costs.
 
 **Usage:**
 ```
@@ -106,12 +106,15 @@ Spawn all reviewers in parallel (multiple Agent tool calls in a single response)
 
 **Spawning limits**: Recursive depth max MAX_DEPTH (depth 1 = top-level reviewers; depth >= MAX_DEPTH cannot spawn further). Global sub-agent cap uses MAX_TOTAL_SUB_AGENTS. At the start of each Phase A, divide remaining sub-agent budget evenly (floor) across all reviewers being spawned this round (not per-batch; CARRY reviewers excluded). Each reviewer's allocation is fixed for the round. If floor = 0 but remaining > 0, assign 1 slot each to the first `remaining` reviewers (by descending complexity), 0 to the rest.
 
-**Context degradation** (Moderator MUST apply when building the 'Previous round summary' section of reviewer prompts):
-- Round 1: no previous summary
+**Context degradation** (Moderator MUST apply when building reviewer prompts for Round 2+):
+- Round 1: no previous summary; reviewers read full target files
+- Round 2+: Moderator injects Phase E diff into prompt; reviewers verify changed regions without full file re-read (see Diff injection below)
 - Round 2: ERROR full (id+severity+location+issue+suggestion) + WARNING slim (id+severity+location+issue, no fix_old/fix_new) + SUGGESTION count only
 - Round 3+: ERROR slim (id+severity+location one-liner) + unresolved WARNING slim (id+severity+location) + SUGGESTION omitted
 - All rounds: FIXED findings as single count summary line
 After each round, Moderator discards full output for PASS/CARRY reviewers; retains scores and trend only.
+
+**Diff injection** (Round 2+): When Phase E applied edits, Moderator captures the unified diff of all modified files. In the Round 2+ reviewer prompt, inject this diff after the "Previous round summary" block. Reviewers focus verification on changed regions and re-read full files only when surrounding context is needed. If Phase E was skipped (D6/D7) or applied 0 fixes, omit the diff block (no changes to verify).
 
 **Reviewer prompt template** (Moderator constructs and injects — sub-agents only see this prompt). Moderator internal state variables (round_counter, round_history, fix_log, modified_files, open_conflicts, open_deferred, sub_agent_counter) must NEVER be included verbatim in reviewer or roundtable prompts.
 
@@ -129,6 +132,11 @@ Review target files: {target_path_list}
 
 [Moderator: omit this block for Round 1. Include for Round 2+:]
 Previous round summary (JSON array): [{"id": "<finding_id>", "status": "FIXED|OPEN|DEFERRED|CONFLICT|MANUAL_REQUIRED", "note": "<one-line summary>"}]. Include ERROR + WARNING entries per degradation schedule above; SUGGESTION count only. Priority: verify FIXED items first by re-examining relevant file locations.
+
+[Moderator: omit for Round 1 or when no Phase E changes. Include for Round 2+ when Phase E applied fixes:]
+Changes applied since your last review:
+{phase_e_diff_unified}
+Focus verification on changed regions. Re-read full target files only when surrounding context is needed to assess a fix.
 
 Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{max_depth}, depth >= {max_depth} spawning forbidden. Sub-agent budget remaining: {remaining}/{MAX_TOTAL_SUB_AGENTS}. If remaining = 0, do NOT spawn any sub-agents. When spawning sub-agents, you MUST include "All output in {output_language}" in their prompt.
 
@@ -153,9 +161,12 @@ By priority (evaluated after pre-check):
    - Baseline: previous Phase C revised_score, or Phase A score if no Phase C ran
    - Excluded: CARRY reviewers (not re-spawned, no current score to compare); re-spawned-from-CARRY reviewers (a reviewer that held CARRY status in the immediately preceding round but was re-spawned this round because its target files were modified — use its most recent pre-CARRY valid score as baseline; track via round_history CARRY entries); reviewers with TIMEOUT/PARSE_ERROR in the current round (no valid current score); reviewers with no valid score in the previous round (TIMEOUT/PARSE_ERROR/ABSENT in prior round — treat as first-time scoring this round); CHALLENGE_REENTRY reviewers (passed reviewers pulled back into Phase C by a CHALLENGE — their Phase C score drop is a normal roundtable outcome; treat as first-time scoring in the subsequent Phase A)
 3. All scores >= PASS_THRESHOLD AND round is NOT PARTIAL_REVIEW → final report. If PARTIAL_REVIEW with all available scores >= PASS_THRESHOLD → log outcome, continue to next round (absent reviewers cannot be assumed passing).
-4. Any score < PASS_THRESHOLD → Phase C
+4. SUGGESTION-only exit: all reviewers have 0 ERROR + 0 WARNING across all findings (only SUGGESTION or no findings) → final report regardless of scores. Log SUGGESTION_ONLY_PASS. Rationale: SUGGESTIONs cannot trigger auto-fix; looping would produce identical results.
+5. Any score < PASS_THRESHOLD → Phase C
 
 ### Phase C: Roundtable Response
+
+**Roundtable skip**: If all failing reviewers' findings target entirely non-overlapping files (no two failing reviewers share a target file in their findings' location fields), skip Phase C — proceed to Phase D with Phase A scores as final scores for this round. Log ROUNDTABLE_SKIPPED in round summary. Rationale: roundtable debate requires shared concerns; non-overlapping reviewers would only AGREE.
 
 Only spawn reviewers that need to participate: score < PASS_THRESHOLD (failing pool), or (round 2+ only) whose findings were the target of a CHALLENGE (the reviewer named in responding_to) in the immediately preceding round's Phase C AND whose score was >= PASS_THRESHOLD (these are designated CHALLENGE_REENTRY). Failing reviewers named in a CHALLENGE remain in the failing pool and are NOT labeled CHALLENGE_REENTRY.
 Passed reviewers carry previous score (CARRY). A PASSED reviewer CHALLENGEd back into roundtable: if its revised_score drops below PASS_THRESHOLD, this is not REGRESSION (normal roundtable outcome), but the reviewer re-enters the failing pool.
@@ -187,12 +198,13 @@ revised_findings must include ONLY findings where changed=true. The Moderator me
 
 By priority:
 1. All revised_score >= PASS_THRESHOLD → final report
-2. Reached MAX_ROUNDS → escalate to user
-3. Same failing reviewers with identical finding sets (matched by file+severity+slug components of id, to account for line-number shifts) and same severities for 2 immediately consecutive rounds in which the reviewer was re-spawned (CARRY and CARRY_UNRESOLVED rounds are skipped — they do not count toward or reset this counter) → early stop, escalate. Score-only stagnation (different findings, same score) ≠ early stop.
-4. Only blockers are all MANUAL_REQUIRED → escalate to user
-5. Failures + AUTO_FIX on/safe + has ERROR/WARNING → Phase E
-6. Failures + AUTO_FIX on/safe + no ERROR/WARNING findings (including zero findings) → Phase E skipped; apply CARRY_FORWARD rules with modified_files=[] (no files changed). Note LOW_SCORE_NO_FIXABLE in round summary.
-7. Failures + AUTO_FIX=off → Phase E skipped; apply CARRY_FORWARD rules with modified_files=[] (no files changed).
+2. SUGGESTION-only exit: all reviewers have 0 ERROR + 0 WARNING → final report. Log SUGGESTION_ONLY_PASS.
+3. Reached MAX_ROUNDS → escalate to user
+4. Same failing reviewers with identical finding sets (matched by file+severity+slug components of id, to account for line-number shifts) and same severities for 2 immediately consecutive rounds in which the reviewer was re-spawned (CARRY and CARRY_UNRESOLVED rounds are skipped — they do not count toward or reset this counter) → early stop, escalate. Score-only stagnation (different findings, same score) ≠ early stop.
+5. Only blockers are all MANUAL_REQUIRED → escalate to user
+6. Failures + AUTO_FIX on/safe + has ERROR/WARNING → Phase E
+7. Failures + AUTO_FIX on/safe + no ERROR/WARNING findings (including zero findings) → Phase E skipped; apply CARRY_FORWARD rules with modified_files=[] (no files changed). Note LOW_SCORE_NO_FIXABLE in round summary.
+8. Failures + AUTO_FIX=off → Phase E skipped; apply CARRY_FORWARD rules with modified_files=[] (no files changed).
 
 Phase D has no user-confirmation gates (unlike Phase E AUTO_FIX=safe). Escalation paths (D2-D4) terminate the loop rather than pausing for mid-phase approval.
 
@@ -298,7 +310,7 @@ ROUND {N}/{MAX_ROUNDS}:
 |----------|-------|--------|----------|-------------|--------|
 (* open/unresolved count for this reviewer as of this round)
 Status: PASS | FAIL | CARRY | CARRY_UNRESOLVED | TIMEOUT | PARSE_ERROR | ABSENT
-[Round flags (if any): PARTIAL_REVIEW | REGRESSION | MINOR_REGRESSION | LOW_SCORE_NO_FIXABLE]
+[Round flags (if any): PARTIAL_REVIEW | REGRESSION | MINOR_REGRESSION | LOW_SCORE_NO_FIXABLE | ROUNDTABLE_SKIPPED | SUGGESTION_ONLY_PASS]
 Trend: {reviewer} R1:X → R2:Y (↑/↓/=)
 FIXES: {N} APPLIED, {N} FIX_FAILED, {N} CONFLICT, {N} DEFERRED
 (auto-continuing next round) | User may type ACCEPT / STOP / ADJUST to intervene
