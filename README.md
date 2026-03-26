@@ -4,16 +4,16 @@ A Claude Code skill that reviews any content through dynamically generated exper
 
 ## How It Works
 
-1. **Role Discovery** — Analyzes your content, generates a roster of expert reviewers (3-20 depending on complexity), each with a distinct personality, focus area, and scoring dimensions
+1. **Role Discovery** — Analyzes your content, generates a roster of expert reviewers (2-12 depending on complexity), each with a distinct personality, focus area, and scoring dimensions
 2. **Parallel Review** — All reviewers examine the content simultaneously, producing structured findings with severity ratings and fix suggestions
 3. **Roundtable** — Failing reviewers debate findings (AGREE / DISAGREE / COMPROMISE / CHALLENGE), revise scores
 4. **Auto-fix** — Applies fixes from ERROR and WARNING findings directly to your files
-5. **Loop** — Repeats up to 5 rounds until all reviewers pass (score >= 9/10)
+5. **Loop** — Repeats up to 5 rounds until all reviewers pass (score >= 8/10)
 
 ## Features
 
 - Generic — works on any content type (code, writing, game scripts, configs, etc.)
-- Recursive sub-agent spawning (depth-limited, globally capped at 30)
+- Recursive sub-agent spawning (depth-limited, globally capped at 10)
 - Conflict detection for overlapping fixes
 - Regression detection across rounds
 - Three auto-fix modes: `on` (automatic), `safe` (confirm before applying), `off`
