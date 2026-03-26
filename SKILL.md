@@ -98,6 +98,8 @@ One round = Phase A → B → C → D → E. Auto-loop until all PASS or MAX_ROU
 **Auto-continue**: After summary table, if not all PASS and under MAX_ROUNDS, spawn next round immediately (no pause). If approaching output limits, Moderator may continue in the next turn. Moderator MUST append the line "(auto-continuing next round) | User may type ACCEPT / STOP / ADJUST to intervene" after every round summary table so control options are always visible in-band.
 User may send ACCEPT/STOP/ADJUST between rounds; Moderator never solicits. Exceptions requiring user input (Moderator MUST pause): REGRESSION (Phase B), AUTO_FIX=safe confirmation (Phase E), 0 successful reviewers (Phase B), MAX_ROUNDS reached (Phase D), stagnation early stop (Phase D), only MANUAL_REQUIRED blockers (Phase D), consecutive ABSENT for same reviewer (Phase C).
 
+**ADJUST handler** (when user sends ADJUST mid-run): (1) Acknowledge and describe the change being applied. (2) If files are removed from scope, mark all existing findings scoped to those files as SCOPE_REMOVED and list them. (3) If roles are added/removed, update the reviewer roster for the next round. (4) If AUTO_FIX mode changes, apply immediately. All changes take effect at the start of the next Phase A (current round completes normally).
+
 ### Phase A: Parallel Review
 
 Spawn all reviewers in parallel (multiple Agent tool calls in a single response). If reviewer count > 8, spawn in batches of up to 8; wait for each batch to return before spawning the next. If an entire batch fails (all reviewers return infrastructure error, not PARSE_ERROR), retry the batch once before per-reviewer error recovery. This batch-level retry does NOT count against each reviewer's 1-retry-per-round individual quota.
@@ -131,7 +133,7 @@ Previous round summary (JSON array): [{"id": "<finding_id>", "status": "FIXED|OP
 Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{max_depth}, depth >= {max_depth} spawning forbidden. Sub-agent budget remaining: {remaining}/{MAX_TOTAL_SUB_AGENTS}. If remaining = 0, do NOT spawn any sub-agents. When spawning sub-agents, you MUST include "All output in {output_language}" in their prompt.
 
 ## Output (strict JSON)
-Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences (```). Output raw JSON only, starting with { and ending with }. [Moderator: REQUIRED — replace this comment with the full Reviewer Output Schema JSON from the Output Schemas section before sending. Do NOT send prompt with this comment intact.]
+Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences (```). Output raw JSON only, starting with { and ending with }. [Moderator: REQUIRED — inject the Reviewer Output Schema JSON here. Strip all angle-bracket comment text from field values before injecting — use only bare example values, not descriptions. Do NOT send prompt with this placeholder intact.]
 Provide fix_old + fix_new for ERROR and WARNING findings when the fix is clear. fix_old must contain enough surrounding context to be unique in the target file. Each finding must cite a specific location.
 ```
 
