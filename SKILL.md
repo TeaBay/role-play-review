@@ -4,7 +4,7 @@ description: "Generic recursive role-play review framework. Dynamically generate
 license: MIT
 metadata:
   author: TeaBay
-  version: "1.4.0"
+  version: "1.5.0"
   compatibility: "Claude Code"
 ---
 
@@ -55,13 +55,23 @@ Use the **same language as the user's message** for all prose output — propaga
 MAX_ROUNDS = 5              // override: --max-rounds N
 PASS_THRESHOLD = 8          // override: --threshold N
 AUTO_FIX = on | safe | off  // override: --auto-fix <mode>, default on
+DRY_RUN = false             // override: --dry-run (boolean, preview Phase E without applying edits)
+ROLE_FILTER = null          // override: --role <name> (free-form, single reviewer, skips role discovery)
+OUTPUT_FORMAT = prose       // override: --output json|csv|markdown (Final Report format only)
 MAX_DEPTH = 2               // fixed
 MAX_TOTAL_SUB_AGENTS = 30   // fixed
 MAX_SAFE_RETRY = 2          // fixed
 MAX_CONFLICT_ROUNDS = 3     // fixed
 ```
 
-**Invocation override**: Append `KEY=VALUE` or `--flag` after scope. Example: `/rpr --max-rounds 3 --threshold 7 --auto-fix safe Review src/auth/`. Unrecognized keys are ignored with a warning.
+**Invocation override**: Append `KEY=VALUE` or `--flag` after scope. Examples:
+```
+/rpr --max-rounds 3 --threshold 7 --auto-fix safe Review src/auth/
+/rpr --dry-run Review src/auth/ for security
+/rpr --role "Security Hawk" Review src/auth/
+/rpr --output json Review src/auth/
+```
+Unrecognized keys are ignored with a warning.
 
 **Moderator state** (persist across rounds, initialized before Round 1):
 - `round_counter = 0` — increments at Phase A start, before spawning
@@ -86,6 +96,8 @@ MAX_CONFLICT_ROUNDS = 3     // fixed
 User provides review scope. If scope or target files are missing, ask user before proceeding.
 Read involved files, identify independently reviewable dimensions (one role per dimension, never merge).
 If a file is binary (non-text, non-image, non-PDF): skip it, notify user, and exclude from review targets.
+
+**`--role <name>` bypass**: If ROLE_FILTER is set (e.g., `/rpr --role "Security Hawk" Review src/auth/`), skip steps 2-4 entirely. Proceed directly to step 5: synthesize a single reviewer with `name` = ROLE_FILTER, `focus` and `scoring_dimensions` inferred from scope description and file types, `target_files` = all files in scope, `recursive_spawning` = never. Skip roster confirmation gate. Proceed to Part 2 with exactly one reviewer (Phase C roundtable will always be ROUNDTABLE_SKIPPED).
 
 ### 2. Generate Role Roster
 
@@ -197,6 +209,8 @@ By priority (evaluated after pre-check):
 
 **Roundtable skip**: If all failing reviewers' findings target entirely non-overlapping files (no two failing reviewers share a target file in their findings' location fields), skip Phase C — proceed to Phase D with Phase A scores as final scores for this round. Log ROUNDTABLE_SKIPPED in round summary. Rationale: roundtable debate requires shared concerns; non-overlapping reviewers would only AGREE.
 
+**Single reviewer mode** (if ROLE_FILTER is set): With exactly one reviewer, Phase C roundtable is logically inapplicable. The roundtable skip condition always fires (single reviewer cannot share findings with itself). Log ROUNDTABLE_SKIPPED (single reviewer mode) explicitly and proceed to Phase D.
+
 Only spawn reviewers that need to participate: score < PASS_THRESHOLD (failing pool), or (round 2+ only) whose findings were the target of a CHALLENGE (the reviewer named in responding_to) in the immediately preceding round's Phase C AND whose score was >= PASS_THRESHOLD (these are designated CHALLENGE_REENTRY). Failing reviewers named in a CHALLENGE remain in the failing pool and are NOT labeled CHALLENGE_REENTRY.
 Passed reviewers carry previous score (CARRY). A PASSED reviewer CHALLENGEd back into roundtable: if its revised_score drops below PASS_THRESHOLD, this is not REGRESSION (normal roundtable outcome), but the reviewer re-enters the failing pool.
 Phase C failure (agent error, empty response, or invalid JSON) → carry Phase A score forward as revised_score, mark ABSENT. Phase C retry: shares the 1-retry-per-round limit with Phase B — if a reviewer already used its retry in Phase B this round, Phase C gets no further retry for that reviewer. ABSENT reviewers are NOT exempt from the all-pass threshold check. If the same reviewer is ABSENT for 2 consecutive rounds in which it was spawned (CARRY rounds do not count toward or break the ABSENT streak), escalate to user. ABSENT counter resets when the reviewer successfully responds in any subsequent round.
@@ -247,6 +261,8 @@ Collect unresolved ERROR + WARNING findings, sort by severity (ERROR before WARN
 - If `location.file` is IN scope → proceed
 - If `location.file` is OUT OF scope → mark status `OUT_OF_SCOPE`, add to `out_of_scope_findings` list, **skip** (do not apply, do not mark CONFLICT/DEFERRED/FIX_FAILED). OUT_OF_SCOPE findings are listed in the round summary for user decision; they remain open.
 
+**DRY_RUN mode (if DRY_RUN=true):** Run full Phase E logic (scope lock check → conflict detection → sorting) but replace all Edit operations with simulated output. Output a `DRY-RUN PREVIEW` block listing findings by outcome: WOULD APPLY, WOULD SKIP (with reason: CONFLICT, OUT_OF_SCOPE, or DEFERRED). Record each finding's simulated status in `fix_log` with prefix `DRY_RUN/APPLIED`, `DRY_RUN/CONFLICT`, etc. `modified_files` remains `[]`. `consecutive_zero_applied` is NOT incremented (dry-run is intentional, not a stagnation). CARRY_FORWARD runs as if `modified_files=[]`. Stop after Phase E (MAX_ROUNDS effectively = 1) and output final report. Append to round summary: `[DRY_RUN: N fixes previewed, 0 applied]`.
+
 **Conflict detection (up-front, before any edits):** Two findings conflict if they target the same file and their location line ranges overlap and both have fix_old + fix_new → mark CONFLICT, skip both. Conflicts are transitive: if A conflicts with B and B conflicts with C, skip all three as a group. If a finding's location is whole-file (file path only, no line range), it conflicts with all other findings in the same file that have fix_old + fix_new. Ranges evaluated on original (pre-edit) line numbers only — do not re-check after edits.
 
 After CONFLICTs are identified and excluded, apply remaining findings in sorted order:
@@ -295,6 +311,55 @@ After Phase E, Moderator outputs a modified_files list.
 4. When in doubt (e.g., reviewer's target file list is empty, or modified_files scope cannot be determined) → re-spawn
 
 Return to Phase A.
+
+---
+
+## Final Report (OUTPUT_FORMAT conditional)
+
+The Final Report is emitted at Phase D exit (routes D1, D2, D3, D4, D5 all produce a report). Format depends on OUTPUT_FORMAT setting:
+
+**OUTPUT_FORMAT = prose** (default):
+- Prose summary of review results
+- Reviewer scores table (GFM)
+- Unresolved findings list (by severity)
+- Session checkpoint HTML comment at end
+
+**OUTPUT_FORMAT = markdown** (explicit):
+- Strict GFM document with defined sections
+- `## Summary`, `## Reviewer Scores`, `## Unresolved Findings`, `## Fix Log`, `## TL;DR`
+- All tables in GFM pipe syntax
+- Session checkpoint preserved as HTML comment
+
+**OUTPUT_FORMAT = json** (raw JSON, no fences):
+```json
+{
+  "rpr_version": "1.5.0",
+  "scope": "...",
+  "rounds_completed": N,
+  "auto_fix_mode": "on|safe|off",
+  "dry_run": true|false,
+  "role_filter": null|"name",
+  "exit_reason": "ALL_PASS|MAX_ROUNDS|SUGGESTION_ONLY_PASS|STAGNATION|ESCALATION|DRY_RUN",
+  "reviewers": [
+    {"name": "...", "final_score": 8, "status": "PASS|FAIL|CARRY|CARRY_UNRESOLVED", "trend": [{"round": 1, "score": 6}]}
+  ],
+  "findings": [
+    {"id": "...", "reviewer": "...", "severity": "ERROR|WARNING|SUGGESTION", "location": "...", "issue": "...", "fix_status": "APPLIED|FIX_FAILED|CONFLICT|DEFERRED|MANUAL_REQUIRED|OPEN|OUT_OF_SCOPE|DRY_RUN/APPLIED"}
+  ],
+  "unresolved_summary": {"ERROR": 0, "WARNING": 0, "SUGGESTION": 0},
+  "out_of_scope_findings": [...],
+  "fix_log": [...]
+}
+```
+Per-round tables suppressed; one-line progress marker per round (e.g., `// RPR Round 1/5 complete`).
+
+**OUTPUT_FORMAT = csv** (findings table only):
+- Headers: `id,reviewer,round,severity,location,issue,fix_status`
+- One row per finding
+- Final Report prose suppressed
+- Summary comment line: `# SUMMARY: N ERROR, N WARNING, N SUGGESTION; N APPLIED, N UNRESOLVED`
+
+All formats preserve session checkpoint (`<!-- RPR_STATE: ... -->` for markdown/prose, embedded JSON for json, comment line `# RPR_STATE: ...` for csv).
 
 ---
 
