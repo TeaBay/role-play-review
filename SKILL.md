@@ -41,7 +41,7 @@ Use the **same language as the user's message** for all output — propagate thi
 
 ```
 MAX_ROUNDS = 5
-PASS_THRESHOLD = 9          // per-reviewer pass bar
+PASS_THRESHOLD = 8          // per-reviewer pass bar
 AUTO_FIX = on | safe | off  // user choice, default on
 MAX_DEPTH = 2               // recursive spawning depth (1 = reviewers, 2 = their sub-agents)
 MAX_TOTAL_SUB_AGENTS = 30   // global cap on all spawned sub-agents (excl. top-level reviewers)
@@ -102,9 +102,9 @@ Spawn all reviewers in parallel (multiple Agent tool calls in a single response)
 **Spawning limits**: Recursive depth max MAX_DEPTH (depth 1 = top-level reviewers; depth >= MAX_DEPTH cannot spawn further). Global sub-agent cap uses MAX_TOTAL_SUB_AGENTS. At the start of each Phase A, divide remaining sub-agent budget evenly (floor) across all reviewers being spawned this round (not per-batch; CARRY reviewers excluded). Each reviewer's allocation is fixed for the round. If floor = 0 but remaining > 0, assign 1 slot each to the first `remaining` reviewers (by descending complexity), 0 to the rest.
 
 **Context degradation** (Moderator MUST apply when building the 'Previous round summary' section of reviewer prompts):
-- Rounds 1-2: full findings
-- Round 3: ERROR + WARNING only (SUGGESTION as count only)
-- Round 4+: ERROR + unresolved WARNING only (resolved WARNING compressed to count)
+- Round 1: full findings
+- Round 2+: ERROR + WARNING only (SUGGESTION as count only)
+- Round 3+: ERROR + unresolved WARNING only (resolved WARNING compressed to count)
 - All rounds: resolved (FIXED) findings compressed to one-line summary
 
 **Reviewer prompt template** (Moderator constructs and injects — sub-agents only see this prompt):
@@ -175,7 +175,7 @@ CHALLENGE must specify the new issue concretely. Concede gracefully when persuad
 
 ## Output (strict JSON)
 Return ONLY a JSON object. [Moderator: inject the full Roundtable Output Schema from the Output Schemas section here when building prompt]
-revised_findings must include the COMPLETE findings list. Unchanged items set changed=false.
+revised_findings must include ONLY findings where changed=true. The Moderator merges these with unchanged findings from the previous round.
 ```
 
 ### Phase D: Re-judgment
@@ -262,15 +262,15 @@ score, scores_breakdown values: integer 0-10 (JSON number, not string). score = 
     "suggestion": "proposed fix",
     "fix_old": "<optional>",
     "fix_new": "<optional>",
-    "changed": false,
-    "change_reason": "<required if changed=true, otherwise omit>"
+    "change_reason": "why this finding changed"
   }],
   "sub_agent_findings": "<array; typically [] in roundtable phase>",
   "summary": "one paragraph summary"
 }
 ```
 
-revised_score, revised_scores_breakdown: integer 0-10 (JSON number). changed: JSON boolean.
+revised_score, revised_scores_breakdown: integer 0-10 (JSON number).
+revised_findings: ONLY include findings that changed. Omit unchanged ones — Moderator carries them forward from the previous round automatically.
 
 ---
 
