@@ -20,6 +20,9 @@ A Claude Code skill that reviews any content through dynamically generated exper
 - Three auto-fix modes: `on` (automatic), `safe` (confirm before applying), `off`
 - Token-efficient: context degradation from round 2, roundtable transmits only changed findings
 
+> **Note:** RPR can consume 1–15M tokens per run. Start with a focused scope to avoid large bills.
+> Auto-fix modifies files directly — use `AUTO_FIX=safe` to review changes before applying.
+
 ## Install
 
 Copy the skill file to your Claude Code skills directory:
