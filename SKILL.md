@@ -4,7 +4,7 @@ description: "Generic recursive role-play review framework. Dynamically generate
 license: MIT
 metadata:
   author: TeaBay
-  version: "1.3.0"
+  version: "1.4.0"
   compatibility: "Claude Code"
 ---
 
@@ -19,7 +19,7 @@ RPR generates expert reviewer roles for your content, runs them in parallel, hol
 
 **Best for:** Code reviews, game scripts, technical docs, API design — any content that benefits from multiple expert perspectives.
 
-**Cost:** ~0.5–8M tokens. Diff injection from Round 2 eliminates redundant file re-reading. Start with a focused scope to minimize costs.
+**Cost:** ~0.1–1M tokens (3-5 roles), ~1–3M (6-12 roles), ~3–6M (13-20 roles, multi-round). Roughly US$0.01–0.30 per run on Sonnet. Diff injection from Round 2 reduces re-reading cost. Start with a focused scope.
 
 **Usage:**
 ```
@@ -31,9 +31,18 @@ Then describe what to review. Examples:
 - `Review the dialogue in scenes/act1.lua for character voice consistency`
 - `Review my API spec (openapi.yaml) for RESTfulness, error handling, and versioning`
 
-**Controls during review:** Type `ACCEPT` to stop early and accept current state, `STOP` to abort, or `ADJUST <instruction>` to change focus, add/remove roles, or change AUTO_FIX mode — takes effect at the start of the next round. When ADJUST removes files from scope, existing findings on those files are marked SCOPE_REMOVED and listed in a Moderator message before the next round begins.
+**Auto-fix is ON by default** — RPR will edit your files directly. Use `ADJUST AUTO_FIX=safe` during review to require confirmation, or `ADJUST AUTO_FIX=off` to disable.
+
+**Controls during review:**
+- `ACCEPT` — stop early, accept current state
+- `STOP` — abort the review
+- `ADJUST <instruction>` — change focus, add/remove roles, or change AUTO_FIX mode (takes effect next round)
+
+When ADJUST removes files from scope, existing findings on those files are marked SCOPE_REMOVED and listed in a Moderator message before the next round begins.
 
 ---
+
+## Moderator Protocol (Internal — not user-facing)
 
 You are the **Moderator**. You do not review content — you only orchestrate and judge.
 Use the **same language as the user's message** for all prose output — propagate this language to all sub-agent prompts. Exception: status tokens (PASS, FAIL, CARRY, TIMEOUT, PARSE_ERROR, ABSENT, ERROR, WARNING, SUGGESTION, DEFERRED, MANUAL_REQUIRED, etc.), JSON field names, and schema-defined string enum values MUST remain in English regardless of output language.
@@ -41,14 +50,16 @@ Use the **same language as the user's message** for all prose output — propaga
 ## Parameters
 
 ```
-MAX_ROUNDS = 5
-PASS_THRESHOLD = 8          // per-reviewer pass bar
-AUTO_FIX = on | safe | off  // user choice, default on
-MAX_DEPTH = 2               // recursive spawning depth (1 = reviewers, 2 = their sub-agents)
-MAX_TOTAL_SUB_AGENTS = 30   // global cap on all spawned sub-agents (excl. top-level reviewers)
-MAX_SAFE_RETRY = 2          // AUTO_FIX=safe: max consecutive all-rejected rounds before escalation
-MAX_CONFLICT_ROUNDS = 3     // consecutive CONFLICT rounds before promoting group to MANUAL_REQUIRED
+MAX_ROUNDS = 5              // override: --max-rounds N
+PASS_THRESHOLD = 8          // override: --threshold N
+AUTO_FIX = on | safe | off  // override: --auto-fix <mode>, default on
+MAX_DEPTH = 2               // fixed
+MAX_TOTAL_SUB_AGENTS = 30   // fixed
+MAX_SAFE_RETRY = 2          // fixed
+MAX_CONFLICT_ROUNDS = 3     // fixed
 ```
+
+**Invocation override**: Append `KEY=VALUE` or `--flag` after scope. Example: `/rpr --max-rounds 3 --threshold 7 --auto-fix safe Review src/auth/`. Unrecognized keys are ignored with a warning.
 
 **Moderator state** (persist across rounds, initialized before Round 1):
 - `round_counter = 0` — increments at Phase A start, before spawning
@@ -57,7 +68,10 @@ MAX_CONFLICT_ROUNDS = 3     // consecutive CONFLICT rounds before promoting grou
 - `open_conflicts = []` — findings with overlapping fix suggestions
 - `open_deferred = []` — findings with vague suggestions
 - `fix_log = []` — all fix attempts with status: APPLIED / FIX_FAILED / CONFLICT / DEFERRED / MANUAL_REQUIRED
-- `modified_files = []` — file paths modified in current round's Phase E; populated during Phase E, consumed by CARRY_FORWARD at Phase E end, then reset to [] at the start of the next round's Phase A (before spawning). If Phase E is skipped (D6/D7), modified_files is never populated and remains []; the Phase A reset is a no-op.
+- `modified_files = []` — file paths modified in current round's Phase E. Lifecycle: reset → [] at Phase A start → populated during Phase E → consumed by CARRY_FORWARD at Phase E end. If Phase E is skipped (D7/D8), remains [].
+- `consecutive_zero_applied = 0` — tracks consecutive Phase E rounds with 0 applied fixes; reset on any round with applied > 0
+
+**Session checkpoint**: After each round summary table, Moderator outputs `<!-- RPR_STATE: {compact JSON of all state vars} -->`. If session is interrupted, user pastes the checkpoint to resume. Context degradation rules (below) apply only to reviewer/roundtable prompt content, NOT to Moderator's own state tracking.
 
 ---
 
@@ -93,7 +107,7 @@ If user explicitly requests to skip roster review (e.g., "just start", "go", "be
 
 ## Part 2: Review Loop
 
-One round = Phase A → B → C → D → E. Auto-loop until all PASS or MAX_ROUNDS. Phase B/D may terminate the loop (final report or escalation); Phase C is skipped when Phase B terminates (terminal paths: B-priority-1 escalation or B-priority-3 all-pass); if user chooses "retry this round" after B-priority-1 escalation, a new Phase A is spawned without incrementing round_counter; Phase E is entered only via Phase D route D5; all other D-routes skip it.
+One round = Phase A → B → C → D → E. Auto-loop until all PASS or MAX_ROUNDS. Phase B/D may terminate the loop (final report or escalation); Phase C is skipped when Phase B terminates (terminal paths: B-priority-1 escalation or B-priority-3 all-pass); if user chooses "retry this round" after B-priority-1 escalation, a new Phase A is spawned without incrementing round_counter; Phase E is entered only via Phase D route D6; all other D-routes skip it.
 
 **Auto-continue**: After summary table, if not all PASS and under MAX_ROUNDS, spawn next round immediately (no pause). If approaching output limits, Moderator may continue in the next turn. Moderator MUST append the line "(auto-continuing next round) | User may type ACCEPT / STOP / ADJUST to intervene" after every round summary table so control options are always visible in-band.
 User may send ACCEPT/STOP/ADJUST between rounds; Moderator never solicits. Exceptions requiring user input (Moderator MUST pause): REGRESSION (Phase B), AUTO_FIX=safe confirmation (Phase E), 0 successful reviewers (Phase B), MAX_ROUNDS reached (Phase D), stagnation early stop (Phase D), only MANUAL_REQUIRED blockers (Phase D), consecutive ABSENT for same reviewer (Phase C).
@@ -114,7 +128,7 @@ Spawn all reviewers in parallel (multiple Agent tool calls in a single response)
 - All rounds: FIXED findings as single count summary line
 After each round, Moderator discards full output for PASS/CARRY reviewers; retains scores and trend only.
 
-**Diff injection** (Round 2+): When Phase E applied edits, Moderator captures the unified diff of all modified files. In the Round 2+ reviewer prompt, inject this diff after the "Previous round summary" block. Reviewers focus verification on changed regions and re-read full files only when surrounding context is needed. If Phase E was skipped (D6/D7) or applied 0 fixes, omit the diff block (no changes to verify).
+**Diff injection** (Round 2+): When Phase E applied edits, Moderator captures the unified diff of all modified files. If the diff exceeds 5000 lines, inject a file-level summary instead (modified files + line count changes); reviewers re-read affected regions as needed. In the Round 2+ reviewer prompt, inject this diff (or summary) after the "Previous round summary" block. Reviewers focus verification on changed regions and re-read full files only when surrounding context is needed. If Phase E was skipped (D7/D8) or applied 0 fixes, omit the diff block (no changes to verify).
 
 **Reviewer prompt template** (Moderator constructs and injects — sub-agents only see this prompt). Moderator internal state variables (round_counter, round_history, fix_log, modified_files, open_conflicts, open_deferred, sub_agent_counter) must NEVER be included verbatim in reviewer or roundtable prompts.
 
@@ -124,7 +138,7 @@ All output in {output_language}. [Moderator: set this to the user's language]
 
 Scope: {scope}
 Review focus: {focus_list}
-Severity Calibration: {calibration_guide}
+Severity Calibration: {calibration_guide_or_reference} [Moderator: Round 1 inject full calibration; Round 2+ inject 'Apply your Round 1 severity calibration unchanged.']
 Scoring dimensions: {dimension_list}. score = min across all dimensions (0-10 integer). Do not inflate scores.
 
 Context files (must read, not review targets): {context_path_list}
@@ -141,14 +155,16 @@ Focus verification on changed regions. Re-read full target files only when surro
 Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{max_depth}, depth >= {max_depth} spawning forbidden. Sub-agent budget remaining: {remaining}/{MAX_TOTAL_SUB_AGENTS}. If remaining = 0, do NOT spawn any sub-agents. When spawning sub-agents, you MUST include "All output in {output_language}" in their prompt.
 
 ## Output (strict JSON)
-Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences (```). Output raw JSON only, starting with { and ending with }. [Moderator: REQUIRED — inject the Reviewer Output Schema JSON here. Strip all angle-bracket comment text from field values before injecting — use only bare example values, not descriptions. Do NOT send prompt with this placeholder intact.]
+Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences. Output raw JSON only, starting with { and ending with }.
+Your output MUST conform to this structure:
+{"reviewer": "role_name", "score": 8, "scores_breakdown": {"dimension_name": 8}, "findings": [{"id": "file:severity:slug:line", "severity": "ERROR", "location": "file_path:line", "issue": "description", "suggestion": "proposed fix", "fix_old": "exact original text", "fix_new": "exact replacement text"}], "sub_agent_findings": [], "summary": "one paragraph summary"}
 Provide fix_old + fix_new for ERROR and WARNING findings when the fix is clear. fix_old must contain enough surrounding context to be unique in the target file. Each finding must cite a specific location.
 ```
 
 ### Phase B: Judgment
 
 Error recovery (apply first):
-- Agent returns error or no response → mark TIMEOUT; empty string response → mark TIMEOUT (logged as EMPTY_RESPONSE); non-JSON or schema-invalid JSON → try markdown code fence extraction, then retry once, then mark PARSE_ERROR
+- Agent returns error or no response → mark TIMEOUT; empty string response → mark TIMEOUT (logged as EMPTY_RESPONSE); non-JSON or schema-invalid JSON → extraction pipeline: (1) strip leading/trailing non-JSON text, attempt parse of outermost `{...}`, (2) try markdown code fence extraction, (3) if both fail → retry once with reinforced prefix 'CRITICAL: Output raw JSON only — no explanation, no code fences.', (4) if retry fails → mark PARSE_ERROR
 - TIMEOUT / PARSE_ERROR excluded from scoring judgment but count as failed for the 80% success threshold (pre-check below). Retries of sub-agents count against sub_agent_counter (top-level reviewer retries do not).
 - Each reviewer gets at most 1 total retry per round (whether from parse failure or success threshold retry — not both).
 
@@ -159,7 +175,12 @@ By priority (evaluated after pre-check):
 1. 0 successful reviewers → escalate to user (options: retry this round or abort)
 2. Regression check (round 2+): any re-spawned reviewer's score drops ≥2 OR drops below PASS_THRESHOLD from above → REGRESSION, escalate (revert last round's Phase E edits if any + re-run / accept + continue / abort). Drop of 1 → MINOR_REGRESSION (logged, no pause).
    - Baseline: previous Phase C revised_score, or Phase A score if no Phase C ran
-   - Excluded: CARRY reviewers (not re-spawned, no current score to compare); re-spawned-from-CARRY reviewers (a reviewer that held CARRY status in the immediately preceding round but was re-spawned this round because its target files were modified — use its most recent pre-CARRY valid score as baseline; track via round_history CARRY entries); reviewers with TIMEOUT/PARSE_ERROR in the current round (no valid current score); reviewers with no valid score in the previous round (TIMEOUT/PARSE_ERROR/ABSENT in prior round — treat as first-time scoring this round); CHALLENGE_REENTRY reviewers (passed reviewers pulled back into Phase C by a CHALLENGE — their Phase C score drop is a normal roundtable outcome; treat as first-time scoring in the subsequent Phase A)
+   - Regression exemption table (first match wins):
+     1. CARRY this round — not re-spawned, no current score → EXEMPT
+     2. TIMEOUT/PARSE_ERROR this round — no valid current score → EXEMPT
+     3. No valid prior score (TIMEOUT/PARSE_ERROR/ABSENT in prior round) → treat as first-time scoring, EXEMPT
+     4. Re-spawned from CARRY — held CARRY in immediately preceding round, re-spawned due to modified files → baseline = most recent pre-CARRY valid score from round_history
+     5. CHALLENGE_REENTRY — passed reviewer pulled back by CHALLENGE → Phase C score drop is normal; treat as first-time in subsequent Phase A, EXEMPT
 3. All scores >= PASS_THRESHOLD AND round is NOT PARTIAL_REVIEW → final report. If PARTIAL_REVIEW with all available scores >= PASS_THRESHOLD → log outcome, continue to next round (absent reviewers cannot be assumed passing).
 4. SUGGESTION-only exit: all reviewers have 0 ERROR + 0 WARNING across all findings (only SUGGESTION or no findings) → final report regardless of scores. Log SUGGESTION_ONLY_PASS. Rationale: SUGGESTIONs cannot trigger auto-fix; looping would produce identical results.
 5. Any score < PASS_THRESHOLD → Phase C
@@ -190,7 +211,9 @@ Respond in your professional role: AGREE / DISAGREE / COMPROMISE / CHALLENGE.
 CHALLENGE: populate challenge_detail with the challenged issue; if raising a genuinely new finding not in your existing set, include it in the new_findings[] array. Concede gracefully when persuaded.
 
 ## Output (strict JSON)
-Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences (```). Output raw JSON only, starting with { and ending with }. [Moderator: REQUIRED — replace this comment with the full Roundtable Output Schema JSON from the Output Schemas section before sending. Do NOT send prompt with this comment intact.]
+Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences. Output raw JSON only, starting with { and ending with }.
+Your output MUST conform to this structure:
+{"reviewer": "role_name", "revised_score": 8, "revised_scores_breakdown": {"dimension_name": 8}, "discussion_points": [{"responding_to": "role_name", "position": "AGREE", "argument": "reasoning", "challenge_detail": "", "new_findings": []}], "revised_findings": [{"id": "finding_id", "severity": "ERROR", "location": "file_path:line", "issue": "description", "suggestion": "fix", "fix_old": "old", "fix_new": "new", "change_reason": "reason", "changed": true}], "sub_agent_findings": [], "summary": "one paragraph summary"}
 revised_findings must include ONLY findings where changed=true. The Moderator merges these with unchanged findings from the previous round.
 ```
 
@@ -198,7 +221,7 @@ revised_findings must include ONLY findings where changed=true. The Moderator me
 
 By priority:
 1. All revised_score >= PASS_THRESHOLD → final report
-2. SUGGESTION-only exit: all reviewers have 0 ERROR + 0 WARNING → final report. Log SUGGESTION_ONLY_PASS.
+2. SUGGESTION-only exit (same criteria as B4): all reviewers have 0 ERROR + 0 WARNING across all findings → final report regardless of scores. Log SUGGESTION_ONLY_PASS.
 3. Reached MAX_ROUNDS → escalate to user
 4. Same failing reviewers with identical finding sets (matched by file+severity+slug components of id, to account for line-number shifts) and same severities for 2 immediately consecutive rounds in which the reviewer was re-spawned (CARRY and CARRY_UNRESOLVED rounds are skipped — they do not count toward or reset this counter) → early stop, escalate. Score-only stagnation (different findings, same score) ≠ early stop.
 5. Only blockers are all MANUAL_REQUIRED → escalate to user
@@ -221,11 +244,16 @@ After CONFLICTs are identified and excluded, apply remaining findings in sorted 
 - Edit fails → mark FIX_FAILED
 
 **Counter tracking:** All per-finding outcome classification (APPLIED, FIX_FAILED, CONFLICT, DEFERRED, rejection-skip) and counter updates complete before the 0-applied check below.
-- Same finding FIX_FAILED, DEFERRED, or CONFLICT for MAX_CONFLICT_ROUNDS consecutive rounds → MANUAL_REQUIRED (never retried; still scored). For CONFLICT groups, all members are promoted together. Match by id (fallback: file+severity+slug when line numbers shift); uncertain match = new finding (counter resets). Secondary match: same file+line range with identical fix_old → inherit counter regardless of id; when both primary and secondary match with differing prior counters, inherit the higher value. Counter resets when the finding is APPLIED or disappears from all reviewers' findings.
+- Same finding FIX_FAILED, DEFERRED, or CONFLICT for MAX_CONFLICT_ROUNDS consecutive rounds → MANUAL_REQUIRED (never retried; still scored). CONFLICT groups promoted together.
+  Matching rules:
+  1. Primary: match by id (fallback: file+severity+slug when line numbers shift); uncertain match = new finding (counter resets)
+  2. Secondary: same file+line range with identical fix_old → inherit counter regardless of id
+  3. Inheritance: when both primary and secondary match with differing prior counters, inherit the higher value
+  4. Reset: counter resets when finding is APPLIED or disappears from all reviewers' findings
 
 **AUTO_FIX=safe:** present all proposed fixes as a batch for user confirmation before applying (exception to auto-continue). User may reject individual fixes: rejected fixes are skipped this round and remain open (not counted as FIX_FAILED). If user rejects all fixes for MAX_SAFE_RETRY consecutive rounds, escalate: offer (a) switch to AUTO_FIX=off, (b) manually review specific fixes, or (c) abort. Otherwise treat as 0 applied (see below).
 
-**This round applied fixes = 0** → skip CARRY_FORWARD, carry passed reviewers (status: CARRY), re-spawn all failing reviewers in next Phase A (user's AUTO_FIX setting unchanged for future rounds). Note: unlike D6/D7 which produce CARRY_UNRESOLVED for failing reviewers, this path forces re-spawn to break a stuck fix loop.
+**This round applied fixes = 0** → increment consecutive_zero_applied counter (Moderator state, initialized to 0, reset on any round with applied > 0). If consecutive_zero_applied >= 2 → escalate to user (options: switch AUTO_FIX mode, provide manual fixes, or abort). Otherwise → skip CARRY_FORWARD, carry passed reviewers (status: CARRY), re-spawn all failing reviewers in next Phase A (user's AUTO_FIX setting unchanged for future rounds). Note: unlike D7/D8 which produce CARRY_UNRESOLVED for failing reviewers, this path forces re-spawn to break a stuck fix loop.
 
 After Phase E, Moderator outputs a modified_files list.
 
