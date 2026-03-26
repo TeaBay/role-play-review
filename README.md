@@ -26,10 +26,10 @@ Copy the skill file to your Claude Code skills directory:
 ```bash
 # Option A: Copy the file directly
 curl -o ~/.claude/skills/role-play-review.md \
-  https://raw.githubusercontent.com/YOUR_USERNAME/role-play-review/main/SKILL.md
+  https://raw.githubusercontent.com/TeaBay/role-play-review/main/SKILL.md
 
 # Option B: Clone and copy
-git clone https://github.com/YOUR_USERNAME/role-play-review.git
+git clone https://github.com/TeaBay/role-play-review.git
 cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 ```
 
