@@ -4,7 +4,7 @@ description: "Generic recursive role-play review framework. Dynamically generate
 license: MIT
 metadata:
   author: TeaBay
-  version: "1.6.0"
+  version: "1.7.0"
   compatibility: "Claude Code"
 ---
 
@@ -36,6 +36,7 @@ AUTO_FIX = on | safe | off  // override: --auto-fix <mode>, default on
 DRY_RUN = false             // override: --dry-run (boolean, preview Phase E without applying edits)
 ROLE_FILTER = null          // override: --role <name> (free-form, single reviewer, skips role discovery)
 OUTPUT_FORMAT = prose       // override: --output json|csv|markdown (Final Report format only)
+CI_MODE = false             // override: --ci (non-interactive, all pause points auto-proceed)
 MAX_DEPTH = 2               // fixed
 MAX_TOTAL_SUB_AGENTS = 30   // fixed
 MAX_SAFE_RETRY = 2          // fixed
@@ -48,8 +49,11 @@ MAX_CONFLICT_ROUNDS = 3     // fixed
 /rpr --dry-run Review src/auth/ for security
 /rpr --role "Security Hawk" Review src/auth/
 /rpr --output json Review src/auth/
+/rpr --ci --output json Review src/auth/
 ```
 Unrecognized keys are ignored with a warning.
+
+**CI_MODE behavior**: When `--ci` is set, all user-confirmation gates auto-proceed: roster confirmation skipped, AUTO_FIX=safe promotes to AUTO_FIX=on, REGRESSION auto-continues, escalations emit warning and continue (never pause). Combine with `--output json` for machine-readable pipeline output.
 
 **Moderator state** (persist across rounds, initialized before Round 1):
 - `round_counter = 0` — increments at Phase A start, before spawning
@@ -155,7 +159,8 @@ Recursive Spawning: conditions {predefined_conditions}, current depth {depth}/{m
 ## Output (strict JSON)
 Return ONLY a JSON object — no text before or after. Do NOT use markdown code fences. Output raw JSON only, starting with { and ending with }.
 Your output MUST conform to this structure:
-{"reviewer": "role_name", "score": 8, "scores_breakdown": {"dimension_name": 8}, "findings": [{"id": "file:severity:slug:line", "severity": "ERROR", "location": "file_path:line", "issue": "description", "suggestion": "proposed fix", "fix_old": "exact original text", "fix_new": "exact replacement text"}], "sub_agent_findings": [], "summary": "one paragraph summary"}
+{"reviewer": "role_name", "score": 8, "scores_breakdown": {"dimension_name": 8}, "findings": [{"id": "file:severity:slug:line", "severity": "ERROR", "location": "file_path:line", "issue": "description", "suggestion": "proposed fix", "confidence": "verified", "fix_old": "exact original text", "fix_new": "exact replacement text"}], "sub_agent_findings": [], "summary": "one paragraph summary"}
+confidence: "verified" (reviewed exact code at location) | "inferred" (pattern-based, high likelihood) | "uncertain" (possible issue, needs manual check). Moderator uses confidence in Final Report to flag uncertain findings.
 Provide fix_old + fix_new for ERROR and WARNING findings when the fix is clear. fix_old must contain enough surrounding context to be unique in the target file. Each finding must cite a specific location.
 ```
 
@@ -168,6 +173,8 @@ Error recovery (apply first):
 
 Pre-check:
 - Success < 80% (strictly less than; exactly 80% proceeds as PARTIAL_REVIEW without retry) → automatically retry failed reviewers that have NOT yet consumed their 1-retry-per-round quota. Retry-exhausted reviewers remain failed. After retries, continue with available results (mark PARTIAL_REVIEW).
+
+**Correlated-bias detection**: If all successful reviewers' scores are within 1 point of each other AND >80% of findings share identical file+severity combinations, log CORRELATED_BIAS in round summary as advisory. This warns that reviewers may share model-level blind spots rather than genuinely agreeing.
 
 By priority (evaluated after pre-check):
 1. 0 successful reviewers → escalate to user (options: retry this round or abort)
