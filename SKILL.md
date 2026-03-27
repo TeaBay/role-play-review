@@ -4,7 +4,7 @@ description: "Generic recursive role-play review framework. Dynamically generate
 license: MIT
 metadata:
   author: TeaBay
-  version: "1.5.0"
+  version: "1.6.0"
   compatibility: "Claude Code"
 ---
 
@@ -15,32 +15,10 @@ metadata:
 
 ## Quick Start
 
-RPR generates expert reviewer roles for your content, runs them in parallel, holds a roundtable debate, then auto-fixes issues — repeating up to 5 rounds until all reviewers pass (score ≥ 8/10).
+RPR generates expert reviewers, runs them in parallel, debates via roundtable, then auto-fixes issues — looping up to 5 rounds until all pass (≥ 8/10). Cost: ~0.1–6M tokens depending on role count. Auto-fix is ON by default.
 
-**Best for:** Code reviews, game scripts, technical docs, API design — any content that benefits from multiple expert perspectives.
-
-**Cost:** ~0.1–1M tokens (3-5 roles), ~1–3M (6-12 roles), ~3–6M (13-20 roles, multi-round). Roughly US$0.01–0.30 per run on Sonnet. Diff injection from Round 2 reduces re-reading cost. Start with a focused scope.
-
-**Usage:**
-```
-/rpr
-```
-Then describe what to review. Examples:
-
-- `Review src/auth/ for security and correctness`
-- `Review the dialogue in scenes/act1.lua for character voice consistency`
-- `Review my API spec (openapi.yaml) for RESTfulness, error handling, and versioning`
-
-**Auto-fix is ON by default** — RPR will edit your files directly. Use `ADJUST AUTO_FIX=safe` during review to require confirmation, or `ADJUST AUTO_FIX=off` to disable.
-
-**Controls during review:**
-- `ACCEPT` — stop early, accept current state
-- `STOP` — abort the review
-- `ADJUST <instruction>` — change focus, add/remove roles, change AUTO_FIX mode, or modify scope (takes effect next round)
-  - `ADJUST SCOPE=add:path/to/file` — expand scope to include additional files; re-evaluates prior OUT_OF_SCOPE findings
-  - `ADJUST SCOPE=lock` — finalize scope; discards all OUT_OF_SCOPE findings; prevents further expansion
-
-When ADJUST removes files from scope, existing findings on those files are marked SCOPE_REMOVED and listed in a Moderator message before the next round begins.
+**Controls:** `ACCEPT` (stop early) | `STOP` (abort) | `ADJUST <instruction>` (change focus/roles/AUTO_FIX/scope next round)
+Scope controls: `ADJUST SCOPE=add:path` (expand) | `ADJUST SCOPE=lock` (finalize, discard OUT_OF_SCOPE findings)
 
 ---
 
@@ -291,16 +269,7 @@ After CONFLICTs are identified and excluded, apply remaining findings in sorted 
 | Performance Expert | 7     | 1     | 2       | 1            | FAIL   |
 ```
 
-If any OUT_OF_SCOPE findings exist, Moderator outputs a summary after the table:
-```
-OUT_OF_SCOPE Findings (awaiting your decision):
-- Security Hawk | ERROR | src/utils/crypto.js:42 | Use constant-time comparison
-- Performance Expert | WARNING | src/cache/redis.js:15 | Cache TTL too long
-
-User options:
-1. ADJUST SCOPE=add:src/utils/,src/cache/ — re-evaluate these files
-2. ADJUST SCOPE=lock — discard these findings, finalize scope
-```
+If any OUT_OF_SCOPE findings exist, Moderator lists them after the table with options: `ADJUST SCOPE=add:<paths>` to include, or `ADJUST SCOPE=lock` to discard.
 
 After Phase E, Moderator outputs a modified_files list.
 
@@ -311,118 +280,6 @@ After Phase E, Moderator outputs a modified_files list.
 4. When in doubt (e.g., reviewer's target file list is empty, or modified_files scope cannot be determined) → re-spawn
 
 Return to Phase A.
-
----
-
-## Final Report (OUTPUT_FORMAT conditional)
-
-The Final Report is emitted at Phase D exit (routes D1, D2, D3, D4, D5 all produce a report). Format depends on OUTPUT_FORMAT setting:
-
-**OUTPUT_FORMAT = prose** (default):
-- Prose summary of review results
-- Reviewer scores table (GFM)
-- Unresolved findings list (by severity)
-- Session checkpoint HTML comment at end
-
-**OUTPUT_FORMAT = markdown** (explicit):
-- Strict GFM document with defined sections
-- `## Summary`, `## Reviewer Scores`, `## Unresolved Findings`, `## Fix Log`, `## TL;DR`
-- All tables in GFM pipe syntax
-- Session checkpoint preserved as HTML comment
-
-**OUTPUT_FORMAT = json** (raw JSON, no fences):
-```json
-{
-  "rpr_version": "1.5.0",
-  "scope": "...",
-  "rounds_completed": N,
-  "auto_fix_mode": "on|safe|off",
-  "dry_run": true|false,
-  "role_filter": null|"name",
-  "exit_reason": "ALL_PASS|MAX_ROUNDS|SUGGESTION_ONLY_PASS|STAGNATION|ESCALATION|DRY_RUN",
-  "reviewers": [
-    {"name": "...", "final_score": 8, "status": "PASS|FAIL|CARRY|CARRY_UNRESOLVED", "trend": [{"round": 1, "score": 6}]}
-  ],
-  "findings": [
-    {"id": "...", "reviewer": "...", "severity": "ERROR|WARNING|SUGGESTION", "location": "...", "issue": "...", "fix_status": "APPLIED|FIX_FAILED|CONFLICT|DEFERRED|MANUAL_REQUIRED|OPEN|OUT_OF_SCOPE|DRY_RUN/APPLIED"}
-  ],
-  "unresolved_summary": {"ERROR": 0, "WARNING": 0, "SUGGESTION": 0},
-  "out_of_scope_findings": [...],
-  "fix_log": [...]
-}
-```
-Per-round tables suppressed; one-line progress marker per round (e.g., `// RPR Round 1/5 complete`).
-
-**OUTPUT_FORMAT = csv** (findings table only):
-- Headers: `id,reviewer,round,severity,location,issue,fix_status`
-- One row per finding
-- Final Report prose suppressed
-- Summary comment line: `# SUMMARY: N ERROR, N WARNING, N SUGGESTION; N APPLIED, N UNRESOLVED`
-
-All formats preserve session checkpoint (`<!-- RPR_STATE: ... -->` for markdown/prose, embedded JSON for json, comment line `# RPR_STATE: ...` for csv).
-
----
-
-## Output Schemas
-
-### Reviewer Output Schema
-
-```json
-{
-  "reviewer": "role_name",
-  "score": 8,
-  "scores_breakdown": {"<dimension_name (must match scoring dimensions exactly)>": 8},
-  "findings": [{
-    "id": "<unique, format: file:severity:short_slug[:line] — line optional/informational; cross-round matching uses file+severity+slug>",
-    "severity": "ERROR|WARNING|SUGGESTION",
-    "location": "<file_path:line[-end_line]> or <file_path> for whole-file issues",
-    "issue": "description",
-    "suggestion": "proposed fix",
-    "fix_old": "<optional — exact original text for auto-fix>",
-    "fix_new": "<optional — exact replacement text for auto-fix>"
-  }],
-  "sub_agent_findings": [],
-  "summary": "one paragraph summary"
-}
-```
-
-score, scores_breakdown values: integer 0-10 (JSON number, not string). score = min across all dimensions.
-sub_agent_findings: array of objects with same schema as findings. Always output []; depth >= MAX_DEPTH MUST output []. Moderator flattens all nested findings into the reviewer's findings list.
-
-### Roundtable Output Schema
-
-```json
-{
-  "reviewer": "role_name",
-  "revised_score": 8,
-  "revised_scores_breakdown": {"<dimension_name (must match scoring dimensions exactly)>": 8},
-  "discussion_points": [{
-    "responding_to": "<role_name>",
-    "position": "AGREE|DISAGREE|COMPROMISE|CHALLENGE",
-    "argument": "reasoning",
-    "challenge_detail": "<required if position=CHALLENGE, otherwise omit>",
-    "new_findings": []
-  }],
-  "revised_findings": [{
-    "id": "<same as original finding — immutable; match by file+severity+slug>",
-    "severity": "ERROR|WARNING|SUGGESTION",
-    "location": "<file_path:line[-end_line]> or <file_path> for whole-file issues",
-    "issue": "description",
-    "suggestion": "proposed fix",
-    "fix_old": "<optional>",
-    "fix_new": "<optional>",
-    "change_reason": "why this finding changed",
-    "changed": true
-  }],
-  "sub_agent_findings": [],
-  "summary": "one paragraph summary"
-}
-```
-
-revised_score, revised_scores_breakdown: integer 0-10 (JSON number).
-revised_findings: include ONLY findings where changed=true. Set changed=true on every entry (all included entries have changed, by definition). Omit unchanged findings — Moderator carries them forward automatically.
-new_findings: array of finding objects (same schema as Reviewer Output Schema findings[]); include ONLY when position=CHALLENGE raises a genuinely new issue not in the reviewer's existing set; otherwise output []. Moderator assigns a formal id if none given, then merges new_findings into the challenger's active finding set after Phase C.
-sub_agent_findings: output [] in roundtable phase (no recursive spawning).
 
 ---
 
@@ -444,6 +301,12 @@ FIXES: {N} APPLIED, {N} FIX_FAILED, {N} CONFLICT, {N} DEFERRED
 
 ## Final Report
 
+**OUTPUT_FORMAT variants** (per-round tables unchanged; only Final Report affected):
+- `prose` (default): TL;DR + Full Report as below
+- `json`: raw JSON object with fields: rpr_version, scope, rounds_completed, auto_fix_mode, dry_run, role_filter, exit_reason, reviewers[], findings[], unresolved_summary, out_of_scope_findings[], fix_log[]
+- `csv`: findings only as CSV (headers: id,reviewer,round,severity,location,issue,fix_status) + summary comment line
+- `markdown`: strict GFM with sections: ## Summary, ## Reviewer Scores, ## Unresolved Findings, ## Fix Log, ## TL;DR
+
 Output TL;DR first, then the full report.
 
 ```
@@ -463,11 +326,3 @@ Severity Calibration Compliance
 Moderator Recommendations
 ```
 
----
-
-## Limitations
-
-- Phase C is parallel-independent, not real-time interactive discussion
-- Sub-agent global cap relies on prompt compliance — Moderator audits via sub_agent_findings
-- Moderator context management: round 3+, keep full output only for failing reviewers; passed reviewers → scores-only summary
-- Auto-fix precision depends on fix_old/fix_new quality from reviewers
