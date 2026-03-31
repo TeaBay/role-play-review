@@ -1,0 +1,38 @@
+{
+  "task": "Implement the approved next iteration of role-play-review in the correct repository.",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Define the new mode and profile contract",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "SKILL.md documents `--mode lite|council` and no longer presents `--mode auto` as supported behavior.",
+        "SKILL.md explains that `--mode council` requires either a profile or an MVC confirmation flow.",
+        "SKILL.md documents `--profile <name>` as the source of role-review contract settings."
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Add council governance rules",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "SKILL.md contains a 'Council Mode Minimum Viable Contract' section with discussion budget, roles, and fix safety defaults.",
+        "SKILL.md contains a 'Legacy Phase C Integration / Replacement Rules' section that states what lite mode keeps and what council mode replaces.",
+        "SKILL.md contains a 'Chair Outcome -> AUTO_FIX Mapping Table' section covering APPROVE, REQUEST_CHANGES, DEFER, and VETO."
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Add CI compatibility contract",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "SKILL.md contains a 'CI JSON Schema Compatibility Policy' section.",
+        "SKILL.md defines a schema_version field and backward-compatibility / semver policy for JSON output.",
+        "SKILL.md contains acceptance criteria or verification guidance for the new mode/profile/council behavior."
+      ]
+    }
+  ]
+}
