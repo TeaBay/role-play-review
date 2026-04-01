@@ -37,3 +37,13 @@ Iteration 2
   - refreshed content-check script passed all acceptance checks
   - `git diff --check` passed after the bounded cleaner pass
 - Ralph cleanup note: `/oh-my-claudecode:cancel` is not available in this CLI environment, so the run is being closed by recording the limitation and completing the repo workflow directly.
+
+Iteration 3 (v3.0 rewrite)
+--------------------------
+- Goal: focused rewrite of SKILL.md for LLM executor — reduce spec bloat, remove CI/backward-compat machinery.
+- Reduced SKILL.md from 543 lines to 228 lines.
+- Removed: Legacy Phase C Integration, CI JSON Schema Compatibility Policy, Backward Compatibility Policy, Acceptance/Verification Guidance checklist, three redundant purpose-reminder sections, MAX_CONFLICT_ROUNDS parameter.
+- Kept and tightened: Chair protocol with hard constraints, Mode/contract resolution, MVC gate, Reviewer behavior + output schema, Lite mode, Council mode (turn budget, drift handling), AUTO_FIX mapping, Final report expectations.
+- Updated README.md and README.zh.md to reflect v3.0 (lite/council modes, chair protocol, new options table, updated example output).
+- Committed as: feat: role-play-review v3.0 — focused rewrite for LLM executor (936a100)
+- All files pushed to origin/main.

@@ -1,31 +1,39 @@
-# Role-Play Review (RPR)
+# Role-Play Review (RPR) v3.0
 
-A Claude Code skill that reviews any content through dynamically generated expert roles — parallel review, roundtable consensus, and auto-fix in a recursive loop.
+A Claude Code skill that reviews any content through role-grounded expert perspectives — exposing findings, trade-offs, and disagreements to help you make better decisions.
+
+Two modes: **lite** (fast single-pass) and **council** (chaired deliberation with turn budgets).
 
 ## How It Works
 
-1. **Role Discovery** — Analyzes your content, generates a roster of expert reviewers (3-20 depending on complexity), each with a distinct personality, focus area, and scoring dimensions
-2. **Parallel Review** — All reviewers examine the content simultaneously, producing structured findings with severity ratings and fix suggestions
-3. **Roundtable** — Failing reviewers debate findings (AGREE / DISAGREE / COMPROMISE / CHALLENGE), revise scores
-4. **Auto-fix** — Applies fixes from ERROR and WARNING findings directly to your files
-5. **Loop** — Repeats up to 5 rounds until all reviewers pass (score >= 8/10)
+### Lite Mode (default)
+1. **Role Generation** — Generates 3–8 expert reviewers matched to your content
+2. **Parallel Review** — Each reviewer examines the content from their role mandate, producing findings with severity and recommendations
+3. **Chair Synthesis** — Chair consolidates findings, surfaces disagreements, and issues an outcome
+4. **Auto-fix** — Applies fixes for `REQUEST_CHANGES` outcome (respects `protected_paths`)
+
+### Council Mode
+1. **Profile / MVC Contract** — Uses a `--profile` YAML or falls back to MVC defaults (Chair + 2 reviewers)
+2. **First-Pass Reviews** — All reviewers produce structured findings
+3. **Chaired Deliberation** — Turn-budgeted roundtable; Chair enforces agenda, rejects drift, and tracks turns
+4. **Outcome** — `APPROVE` / `REQUEST_CHANGES` / `DEFER` / `VETO` / `NO_DECISION`
+5. **Auto-fix** — Runs only on `REQUEST_CHANGES`; blocked on `VETO` and `NO_DECISION`
 
 ## Features
 
-- Generic — works on any content type (code, writing, game scripts, configs, etc.)
-- Recursive sub-agent spawning (depth-limited, globally capped at 30)
-- Automatically responds in the user's language
-- Conflict detection for overlapping fixes
-- Regression detection across rounds
-- Three auto-fix modes: `on` (automatic), `safe` (confirm before applying), `off`
-- Token-efficient: context degradation from round 2, roundtable transmits only changed findings
+- Works on any content type (code, docs, configs, strategies, scripts, etc.)
+- Two modes: `--mode lite` (fast) and `--mode council` (contractual deliberation)
+- Custom review contracts via `--profile <name>` YAML
+- Mandatory turn budgets — deliberation cannot run forever
+- Visible dissent — material disagreements surface in the final report
+- Auto-fix with `safe` (confirm), `on` (automatic), `off` modes
+- Protected paths (gitignore-style globs) — never touched by auto-fix
+- `--ci` flag for headless pipelines (auto-accepts prompts, emits JSON-friendly output)
 
-> **Note:** RPR can consume 0.1–6M tokens per run (3–5 roles: 0.1–1M, 6–12 roles: 1–3M, 13–20 roles multi-round: 3–6M). Roughly US$0.01–0.30 per run on Sonnet. Start with a focused scope to avoid large bills.
-> Auto-fix modifies files directly — use `AUTO_FIX=safe` to review changes before applying.
+> **Note:** Lite mode is token-efficient (3–8 roles, single pass). Council mode with many turns uses more tokens. Start focused to manage cost.
+> Auto-fix modifies files directly — default `--auto-fix safe` shows a diff before applying.
 
 ## Install
-
-Copy the skill file to your Claude Code skills directory:
 
 ```bash
 # Option A: Copy the file directly
@@ -39,31 +47,50 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 
 ## Usage
 
-In Claude Code:
-
 ```
-/role-play-review
-```
-
-or
-
-```
-/rpr
+/role-play-review [options] <scope>
+/rpr [options] <scope>
 ```
 
-Then provide the scope of what you want reviewed. RPR will generate the appropriate expert roles, run the review loop, and produce a final report.
+### Examples
+
+```text
+/rpr Review src/auth/
+/rpr --mode lite Review docs/api.md
+/rpr --mode council --profile crypto-bot Review docs/strategy.md
+/rpr --mode council Review docs/design.md
+/rpr --ci --output json Review src/
+```
+
+### Key Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--mode lite\|council` | `lite` | Review mode |
+| `--profile <name>` | — | Load a review contract YAML |
+| `--auto-fix safe\|on\|off` | `safe` | Auto-fix behaviour |
+| `--max-reviewers N` | `8` | Cap number of reviewers |
+| `--role "<name>"` | — | Run a single reviewer only |
+| `--ci` | `false` | Headless / CI mode |
+| `--output prose\|json\|markdown` | `prose` | Output format |
 
 ## Example Output
 
 ```
-ROUND 3/5:
-| Reviewer              | Score | ERROR | WARNING | SUGGESTION | Status |
-|-----------------------|-------|-------|---------|------------|--------|
-| The Iron Architect    | 9     | 0     | 1       | 2          | PASS   |
-| Security Hawk         | 9     | 0     | 0       | 3          | PASS   |
-| Performance Obsessive | 10    | 0     | 0       | 1          | PASS   |
-Trend: The Iron Architect R1:6 → R2:8 → R3:9 (↑)
-FIXES: 12 APPLIED, 0 FIX_FAILED, 0 CONFLICT, 1 DEFERRED
+Chair Outcome: REQUEST_CHANGES
+
+| Reviewer         | Status | Score | ERROR | WARNING | SUGGESTION |
+|------------------|--------|-------|-------|---------|------------|
+| Risk Officer     | FAIL   | 5     | 2     | 1       | 0          |
+| Security Lead    | PASS   | 8     | 0     | 2       | 3          |
+| API Designer     | PASS   | 9     | 0     | 0       | 2          |
+
+Unresolved disagreements: 1
+  - risk-01: Risk Officer vs API Designer — severity disputed (user_action_required: true, urgency: high)
+
+chair_justification: "Outcome is REQUEST_CHANGES because risk-01 is a blocker per Risk Officer mandate. API Designer finding api-03 deprioritized — style preference, not blocking."
+
+AUTO_FIX: 3 applied, 0 blocked, 1 deferred (protected path)
 ```
 
 ## License

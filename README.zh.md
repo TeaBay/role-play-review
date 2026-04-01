@@ -1,28 +1,39 @@
-# Role-Play Review (RPR)
+# Role-Play Review (RPR) v3.0
 
-一個 Claude Code skill，透過動態生成的專家角色審查任何內容——並行審查、圓桌辯論、自動修復，循環執行直到所有人通過。
+一個 Claude Code skill，透過有角色基礎的專家視角審查任何內容——暴露發現、取捨、分歧，幫助你做出更好的決策。
+
+兩種模式：**lite**（快速單輪）和 **council**（主席主持、有回合上限的深度審議）。
 
 ## 工作原理
 
-1. **角色發現** — 分析你的內容，生成專家審查員名單（視複雜度 3-20 個），每人有獨特個性、專注範圍和評分維度
-2. **並行審查** — 所有審查員同時審查內容，輸出帶有嚴重性評級和修復建議的結構化發現
-3. **圓桌討論** — 未通過的審查員辯論各自的發現（AGREE / DISAGREE / COMPROMISE / CHALLENGE），修訂分數
-4. **自動修復** — 直接將 ERROR 和 WARNING 發現的修復應用到你的文件
-5. **循環** — 最多重複 5 輪，直到所有審查員通過（分數 ≥ 8/10）
+### Lite 模式（預設）
+1. **角色生成** — 按內容生成 3–8 位專家審查員
+2. **並行審查** — 每位審查員從自身職能出發，輸出發現與建議
+3. **主席綜合** — 整合發現，呈現分歧，給出審查結果
+4. **自動修復** — `REQUEST_CHANGES` 結果時執行（遵守 `protected_paths`）
+
+### Council 模式
+1. **合約 / MVC** — 使用 `--profile` YAML，或回退至 MVC 預設（主席 + 2 位審查員）
+2. **初輪審查** — 所有審查員輸出結構化發現
+3. **主席主持審議** — 有回合預算的圓桌；主席執行議程、阻止偏題、追蹤回合數
+4. **審查結果** — `APPROVE` / `REQUEST_CHANGES` / `DEFER` / `VETO` / `NO_DECISION`
+5. **自動修復** — 僅在 `REQUEST_CHANGES` 時執行；`VETO` 和 `NO_DECISION` 時永遠封鎖
 
 ## 特點
 
-- 通用——適用於任何內容類型（代碼、寫作、遊戲腳本、配置文件等）
-- 遞歸 sub-agent 生成（深度限制，全局上限 30 個）
-- 自動偵測用戶語言，所有輸出跟隨對話語言
-- 衝突檢測（重疊修復）
-- 跨輪次回歸檢測
-- 三種自動修復模式：`on`（自動）、`safe`（應用前確認）、`off`
-- Context 降級管理及圓桌差異輸出，控制 token 用量
+- 適用於任何內容類型（代碼、文檔、配置、策略、腳本等）
+- 兩種模式：`--mode lite`（快速）和 `--mode council`（契約式審議）
+- 透過 `--profile <name>` YAML 自定義審查合約
+- 強制回合預算——審議不會無限延伸
+- 可見異議——重大分歧會出現在最終報告中
+- 自動修復三種模式：`safe`（確認後應用）、`on`（自動）、`off`
+- Protected paths（gitignore 格式 glob）——自動修復永不觸碰
+- `--ci` 旗標支援 headless 流水線
+
+> **提示：** Lite 模式 token 效率高（3–8 個角色，單輪）。Council 模式回合多時用量較高。建議從聚焦的 scope 開始控制成本。
+> 自動修復會直接修改文件——預設 `--auto-fix safe` 會先顯示 diff 再應用。
 
 ## 安裝
-
-將 skill 文件複製到你的 Claude Code skills 目錄：
 
 ```bash
 # 方式 A：直接複製文件
@@ -36,44 +47,51 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 
 ## 使用方法
 
-在 Claude Code 中輸入：
-
 ```
-/role-play-review
-```
-
-或
-
-```
-/rpr
+/role-play-review [選項] <範圍>
+/rpr [選項] <範圍>
 ```
 
-然後描述要審查的內容。RPR 會生成合適的專家角色，執行審查循環，並生成最終報告。
+### 使用示例
 
-**審查中途可輸入：** `ACCEPT` 提早接受、`STOP` 中止、`ADJUST` 調整方向。
+```text
+/rpr Review src/auth/
+/rpr --mode lite Review docs/api.md
+/rpr --mode council --profile crypto-bot Review docs/strategy.md
+/rpr --mode council Review docs/design.md
+/rpr --ci --output json Review src/
+```
 
-## 使用示例
+### 主要選項
 
-- `Review src/auth/ for security and correctness`（代碼安全審查）
-- `Review the dialogue in scenes/act1.lua for character voice consistency`（遊戲腳本審查）
-- `Review my API spec (openapi.yaml) for RESTfulness, error handling, and versioning`（API 設計審查）
+| 選項 | 預設值 | 說明 |
+|------|--------|------|
+| `--mode lite\|council` | `lite` | 審查模式 |
+| `--profile <name>` | — | 載入審查合約 YAML |
+| `--auto-fix safe\|on\|off` | `safe` | 自動修復行為 |
+| `--max-reviewers N` | `8` | 審查員上限 |
+| `--role "<name>"` | — | 只執行單一審查員 |
+| `--ci` | `false` | Headless / CI 模式 |
+| `--output prose\|json\|markdown` | `prose` | 輸出格式 |
 
 ## 輸出示例
 
 ```
-ROUND 3/5:
-| 審查員            | 分數 | ERROR | WARNING | SUGGESTION | 狀態 |
-|-------------------|------|-------|---------|------------|------|
-| 嚴格架構師        | 9    | 0     | 1       | 2          | PASS |
-| 安全偵探          | 9    | 0     | 0       | 3          | PASS |
-| 效能狂人          | 10   | 0     | 0       | 1          | PASS |
-Trend: 嚴格架構師 R1:6 → R2:8 → R3:9 (↑)
-FIXES: 12 APPLIED, 0 FIX_FAILED, 0 CONFLICT, 1 DEFERRED
+Chair Outcome: REQUEST_CHANGES
+
+| 審查員        | 狀態 | 分數 | ERROR | WARNING | SUGGESTION |
+|---------------|------|------|-------|---------|------------|
+| 風險主任      | FAIL | 5    | 2     | 1       | 0          |
+| 安全主管      | PASS | 8    | 0     | 2       | 3          |
+| API 設計師    | PASS | 9    | 0     | 0       | 2          |
+
+未解決分歧：1 項
+  - risk-01：風險主任 vs API 設計師 — 嚴重程度有爭議（user_action_required: true，urgency: high）
+
+chair_justification: "結果為 REQUEST_CHANGES，因為 risk-01 依風險主任職能判斷為阻斷項。api-03 降優先級——風格偏好，不構成阻斷。"
+
+AUTO_FIX：已應用 3 項，已阻擋 0 項，已延遲 1 項（protected path）
 ```
-
-## Token 成本
-
-視乎 scope 和審查員數量，約 **0.5–4M tokens**。建議從聚焦的 scope 開始。
 
 ## 授權
 
