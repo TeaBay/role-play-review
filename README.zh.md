@@ -1,9 +1,8 @@
-# Role-Play Review (RPR) v4.0
+# Role-Play Review (RPR) v3.0
 
 一個 Claude Code skill，透過有角色基礎的專家視角審查任何內容——暴露發現、取捨、分歧，幫助你做出更好的決策。
 
 兩種模式：**lite**（快速單輪）和 **council**（主席主持、有回合上限的深度審議）。
-兩種引擎：**native**（單一模型，零設置）和 **openclaw**（多模型調度，真正多元觀點）。
 
 ## 工作原理
 
@@ -20,21 +19,11 @@
 4. **審查結果** — `APPROVE` / `REQUEST_CHANGES` / `DEFER` / `VETO` / `NO_DECISION`
 5. **自動修復** — 僅在 `REQUEST_CHANGES` 時執行；`VETO` 和 `NO_DECISION` 時永遠封鎖
 
-### OpenClaw 引擎
-指定 `--engine openclaw` 時，每位審查員會透過 OpenClaw 的代理系統調度到**不同的 LLM**。不同模型家族（GPT、Claude、Grok、Gemini）有不同的推理模式同盲點，產生真正多元的觀點。
-
-- **零配置**：未指定模型時使用 OpenClaw 預設模型
-- **逐角色指定模型**：在 profile YAML 中為每個角色分配特定模型
-- **並行調度**：所有審查員同時調度以提高速度
-- **優雅降級**：OpenClaw 不可用時自動回退至 native 單模型審查
-
 ## 特點
 
 - 適用於任何內容類型（代碼、文檔、配置、策略、腳本等）
 - 兩種模式：`--mode lite`（快速）和 `--mode council`（契約式審議）
-- 兩種引擎：`--engine native`（單模型）和 `--engine openclaw`（多模型）
-- OpenClaw 引擎為每位審查員調度不同 LLM，實現真正的觀點多元化
-- 透過 `--profile <name>` YAML 自定義審查合約（可選逐角色模型分配）
+- 透過 `--profile <name>` YAML 自定義審查合約
 - 強制回合預算——審議不會無限延伸
 - 可見異議——重大分歧會出現在最終報告中
 - 自動修復三種模式：`safe`（確認後應用）、`on`（自動）、`off`
@@ -43,7 +32,6 @@
 
 > **提示：** Lite 模式 token 效率高（3–8 個角色，單輪）。Council 模式回合多時用量較高。建議從聚焦的 scope 開始控制成本。
 > 自動修復會直接修改文件——預設 `--auto-fix safe` 會先顯示 diff 再應用。
-> OpenClaw 引擎會產生額外 API 調用費用（每位審查員一次調用）。
 
 ## 安裝
 
@@ -56,8 +44,6 @@ curl -o ~/.claude/skills/role-play-review.md \
 git clone https://github.com/TeaBay/role-play-review.git
 cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 ```
-
-**OpenClaw 引擎需要額外安裝：** 確保 `openclaw` CLI 已安裝並配置好模型提供者。
 
 ## 使用方法
 
@@ -72,8 +58,7 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 /rpr Review src/auth/
 /rpr --mode lite Review docs/api.md
 /rpr --mode council --profile crypto-bot Review docs/strategy.md
-/rpr --engine openclaw --mode council Review docs/design.md
-/rpr --engine openclaw --mode lite Review src/
+/rpr --mode council Review docs/design.md
 /rpr --ci --output json Review src/
 ```
 
@@ -82,7 +67,6 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 | 選項 | 預設值 | 說明 |
 |------|--------|------|
 | `--mode lite\|council` | `lite` | 審查模式 |
-| `--engine native\|openclaw` | `native` | 執行引擎 |
 | `--profile <name>` | — | 載入審查合約 YAML |
 | `--auto-fix safe\|on\|off` | `safe` | 自動修復行為 |
 | `--max-reviewers N` | `8` | 審查員上限 |
@@ -93,17 +77,16 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 ## 輸出示例
 
 ```
-Engine: openclaw
 Chair Outcome: REQUEST_CHANGES
 
-| 審查員        | 引擎     | 模型                              | 狀態 | 分數 | ERROR | WARNING | SUGGESTION |
-|---------------|----------|------------------------------------|------|------|-------|---------|------------|
-| 風險主任      | openclaw | xai/grok-4                         | FAIL | 5    | 2     | 1       | 0          |
-| 安全主管      | openclaw | github-copilot/claude-sonnet-4.6   | PASS | 8    | 0     | 2       | 3          |
-| API 設計師    | openclaw | github-copilot/gpt-5.1             | PASS | 9    | 0     | 0       | 2          |
+| 審查員        | 狀態 | 分數 | ERROR | WARNING | SUGGESTION |
+|---------------|------|------|-------|---------|------------|
+| 風險主任      | FAIL | 5    | 2     | 1       | 0          |
+| 安全主管      | PASS | 8    | 0     | 2       | 3          |
+| API 設計師    | PASS | 9    | 0     | 0       | 2          |
 
 未解決分歧：1 項
-  - risk-01：風險主任 (grok-4) vs API 設計師 (gpt-5.1) — 嚴重程度有爭議（user_action_required: true，urgency: high）
+  - risk-01：風險主任 vs API 設計師 — 嚴重程度有爭議（user_action_required: true，urgency: high）
 
 chair_justification: "結果為 REQUEST_CHANGES，因為 risk-01 依風險主任職能判斷為阻斷項。api-03 降優先級——風格偏好，不構成阻斷。"
 

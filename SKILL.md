@@ -1,14 +1,14 @@
 ---
 name: role-play-review
-description: "Role-based review system with lite mode for fast reviews and council mode for chaired deliberation. Reviewers speak from their own job function, can disagree with reasons, and the chair decides whether to approve, request changes, defer, or veto. Supports OpenClaw multi-model dispatch for genuine perspective diversity."
+description: "Role-based review system with lite mode for fast reviews and council mode for chaired deliberation. Reviewers speak from their own job function, can disagree with reasons, and the chair decides whether to approve, request changes, defer, or veto."
 license: MIT
 metadata:
   author: TeaBay
-  version: "4.0.0"
-  compatibility: "Claude Code + OpenClaw"
+  version: "3.0.0"
+  compatibility: "Claude Code"
 ---
 
-# Role-Play Review (RPR) v4.0
+# Role-Play Review (RPR) v3.0
 
 > Invoke: `/role-play-review` or `/rpr`
 > **Purpose: Help the user make a better decision by exposing role-grounded findings, trade-offs, disagreements, and decision paths.**
@@ -19,7 +19,7 @@ metadata:
 /rpr Review src/auth/
 /rpr --mode lite Review docs/api.md
 /rpr --mode council --profile crypto-bot Review docs/polymarket-bot.md
-/rpr --engine openclaw --mode council Review docs/strategy.md
+/rpr --mode council Review docs/strategy.md
 /rpr --ci --output json Review src/
 ```
 
@@ -31,7 +31,6 @@ metadata:
 
 ```text
 MODE = lite | council          // --mode lite|council; default lite
-ENGINE = native | openclaw     // --engine native|openclaw; default native
 PROFILE = null                 // --profile <name>
 MAX_REVIEWERS = 8              // --max-reviewers N
 AUTO_FIX = safe | off | on    // --auto-fix <mode>; default safe
@@ -42,41 +41,7 @@ CI_MODE = false                // --ci
 
 ---
 
-## Engine Selection
-
-### Native Engine (default)
-
-All reviewers are simulated by the current LLM session. Fast, zero-setup, but all perspectives share the same model's biases.
-
-### OpenClaw Engine
-
-Each reviewer is dispatched to a **separate model** via `openclaw agent --local`. This produces genuinely diverse perspectives because different model families have different reasoning patterns, biases, and blind spots.
-
-**Prerequisites:** OpenClaw CLI installed and configured with at least one model provider.
-
-**How it works:**
-1. Chair (current session) generates the reviewer roster and crafts a role-specific prompt for each reviewer
-2. Each reviewer prompt is dispatched via: `openclaw agent --local --agent <agent_id> --message "<prompt>" --json`
-3. Chair collects all responses, parses findings, and proceeds to synthesis
-
-**Model assignment priority:**
-1. Profile `roles[].model` field (explicit per-role)
-2. Profile `openclaw.default_model` field
-3. OpenClaw's default model (from `openclaw models list`)
-
-**Dispatch rules:**
-- Each reviewer call MUST include the full review context (file contents, role mandate, output schema) — OpenClaw agents are stateless per call
-- Set `--thinking medium` for complex reviews, `--thinking off` for simple scope
-- Parse the `payloads[0].text` field from the JSON response
-- If a dispatch fails (timeout, model error), mark that reviewer as `degraded` and continue with remaining reviewers
-- Chair MUST note which model produced each reviewer's findings in the final report
-
-**Fallback:** If OpenClaw is unavailable or all dispatches fail, fall back to native engine with a warning:
-```text
-[WARN] OpenClaw dispatch failed — falling back to native engine (single-model review)
-```
-
----
+## Chair Protocol
 
 You are the **Chair**: moderator and synthesizer, not a domain reviewer and not the owner of the decision.
 
@@ -127,17 +92,11 @@ You are the **Chair**: moderator and synthesizer, not a domain reviewer and not 
 ```yaml
 name: crypto-bot
 default_mode: council
-openclaw:                           # OpenClaw engine settings (optional)
-  default_model: github-copilot/gpt-5.1
-  default_agent: admin_bot          # agent id for dispatch
-  thinking: medium                  # off|minimal|low|medium|high|xhigh
 roles:
   - id: risk_officer
     mandate: "Protect capital and define loss boundaries"
-    model: xai/grok-4               # override model for this role
   - id: quant_strategist
     mandate: "Protect edge quality and market assumptions"
-    model: github-copilot/claude-sonnet-4.6
 conflict_pairs:
   - [risk_officer, quant_strategist]
 discussion_budget:
@@ -172,57 +131,10 @@ Generate all reviewer perspectives before synthesizing. Each reviewer must:
 - explain the issue and why it matters to the user
 - propose a recommendation or decision path
 
-### Native Engine Dispatch
-
-Generate all reviewer outputs within the current session sequentially.
-
-### OpenClaw Engine Dispatch
-
-For each reviewer, construct a self-contained prompt and dispatch via bash:
-
-```bash
-openclaw agent --local \
-  --agent "${AGENT_ID}" \
-  --message "${REVIEWER_PROMPT}" \
-  --thinking "${THINKING_LEVEL}" \
-  --json
-```
-
-**Reviewer prompt template** (sent to each OpenClaw agent):
-
-```text
-You are a ${ROLE_NAME} reviewing the following content.
-Your mandate: ${MANDATE}
-
-## Content to Review
-${CONTENT}
-
-## Instructions
-1. Review ONLY from your role mandate perspective
-2. Output valid JSON matching this schema exactly:
-${OUTPUT_SCHEMA}
-3. Be specific — cite file paths, line numbers, or sections
-4. Score 1-10 where 10 = no issues from your role's perspective
-```
-
-**Parallel dispatch:** When MAX_REVIEWERS > 1, dispatch all reviewers in parallel (multiple bash calls in one turn). Collect all results before proceeding to synthesis.
-
-**Model attribution:** Tag each reviewer's findings with the model that produced them:
-```json
-{
-  "reviewer": "Risk Officer",
-  "engine": "openclaw",
-  "model": "xai/grok-4",
-  ...
-}
-```
-
 **Reviewer output includes:**
 ```json
 {
   "reviewer": "Risk Officer",
-  "engine": "native | openclaw",
-  "model": "current-session | xai/grok-4",
   "status": "ok",
   "score": 6,
   "findings": [
@@ -264,37 +176,6 @@ If reviewers materially disagree → record disagreement, hand decision to user.
 - Chair emits turn tracker before each intervention: `Turn tracker: [role_a: 1/2, role_b: 0/2, total: 1/6]`
 - Role exhausts turns → further interventions logged as `turn_rejected`
 - Session hits `max_total_turns` → Chair must issue outcome or `NO_DECISION`
-
-### Council Mode with OpenClaw Engine
-
-When `ENGINE = openclaw`, council deliberation rounds are dispatched to OpenClaw agents:
-
-1. **First pass**: all reviewers dispatched in parallel (see Part 2)
-2. **Deliberation rounds**: Chair constructs a round prompt containing the agenda + all prior findings + specific questions, then dispatches each reviewer for their turn
-3. **Round prompt template**:
-```text
-You are ${ROLE_NAME}. Your mandate: ${MANDATE}
-
-## Council Agenda
-${AGENDA_ITEMS}
-
-## Prior Findings from All Reviewers
-${ALL_FINDINGS_JSON}
-
-## Your Task This Round
-Respond to the findings above. You may:
-- support (agree with another reviewer's finding)
-- disagree (with reasons)
-- conditional support (agree if conditions met)
-- propose alternative
-- escalate risk
-- mark as user-decision
-
-Output valid JSON: {"responses": [{"finding_id": "...", "action": "...", "reason": "..."}]}
-```
-
-4. Chair collects all round responses, updates the turn tracker, and decides whether another round is needed or an outcome can be issued
-5. **Model diversity in deliberation**: each reviewer retains its assigned model across all rounds — the same model that produced the first-pass findings also participates in deliberation
 
 ---
 
@@ -343,19 +224,5 @@ Separate clearly:
 - chair outcome + justification
 - degraded coverage warnings
 - whether auto-fix ran, was blocked, or was deferred
-
-**OpenClaw engine additions:**
-- model attribution table (which model reviewed which role)
-- any degraded reviewers (dispatch failures) and fallback actions taken
-- total token usage per reviewer (from OpenClaw meta)
-
-Example model attribution:
-```text
-| Reviewer         | Engine   | Model                              | Status |
-|------------------|----------|------------------------------------|--------|
-| Risk Officer     | openclaw | xai/grok-4                         | ok     |
-| Security Lead    | openclaw | github-copilot/claude-sonnet-4.6   | ok     |
-| API Designer     | openclaw | github-copilot/gpt-5.1             | ok     |
-```
 
 **Lite mode stays fast. Council mode stays contractual. Both serve the user's decision.**

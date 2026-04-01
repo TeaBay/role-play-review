@@ -1,9 +1,8 @@
-# Role-Play Review (RPR) v4.0
+# Role-Play Review (RPR) v3.0
 
 A Claude Code skill that reviews any content through role-grounded expert perspectives — exposing findings, trade-offs, and disagreements to help you make better decisions.
 
 Two modes: **lite** (fast single-pass) and **council** (chaired deliberation with turn budgets).
-Two engines: **native** (single-model, zero-setup) and **openclaw** (multi-model dispatch for genuine perspective diversity).
 
 ## How It Works
 
@@ -20,21 +19,11 @@ Two engines: **native** (single-model, zero-setup) and **openclaw** (multi-model
 4. **Outcome** — `APPROVE` / `REQUEST_CHANGES` / `DEFER` / `VETO` / `NO_DECISION`
 5. **Auto-fix** — Runs only on `REQUEST_CHANGES`; blocked on `VETO` and `NO_DECISION`
 
-### OpenClaw Engine
-When `--engine openclaw` is specified, each reviewer is dispatched to a **separate LLM** via OpenClaw's agent system. This creates genuine perspective diversity — different model families (GPT, Claude, Grok, Gemini) have different reasoning patterns and blind spots.
-
-- **Zero config**: works with OpenClaw's default model if no per-role model is specified
-- **Per-role models**: assign specific models to specific roles in the profile YAML
-- **Parallel dispatch**: all reviewers are dispatched simultaneously for speed
-- **Graceful fallback**: if OpenClaw is unavailable, falls back to native single-model review
-
 ## Features
 
 - Works on any content type (code, docs, configs, strategies, scripts, etc.)
 - Two modes: `--mode lite` (fast) and `--mode council` (contractual deliberation)
-- Two engines: `--engine native` (single-model) and `--engine openclaw` (multi-model)
-- OpenClaw engine dispatches each reviewer to a different LLM for genuine diversity
-- Custom review contracts via `--profile <name>` YAML (with optional per-role model assignment)
+- Custom review contracts via `--profile <name>` YAML
 - Mandatory turn budgets — deliberation cannot run forever
 - Visible dissent — material disagreements surface in the final report
 - Auto-fix with `safe` (confirm), `on` (automatic), `off` modes
@@ -69,8 +58,7 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 /rpr Review src/auth/
 /rpr --mode lite Review docs/api.md
 /rpr --mode council --profile crypto-bot Review docs/strategy.md
-/rpr --engine openclaw --mode council Review docs/design.md
-/rpr --engine openclaw --mode lite Review src/
+/rpr --mode council Review docs/design.md
 /rpr --ci --output json Review src/
 ```
 
@@ -79,7 +67,6 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--mode lite\|council` | `lite` | Review mode |
-| `--engine native\|openclaw` | `native` | Execution engine |
 | `--profile <name>` | — | Load a review contract YAML |
 | `--auto-fix safe\|on\|off` | `safe` | Auto-fix behaviour |
 | `--max-reviewers N` | `8` | Cap number of reviewers |
@@ -90,17 +77,16 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 ## Example Output
 
 ```
-Engine: openclaw
 Chair Outcome: REQUEST_CHANGES
 
-| Reviewer         | Engine   | Model                            | Status | Score | ERROR | WARNING | SUGGESTION |
-|------------------|----------|----------------------------------|--------|-------|-------|---------|------------|
-| Risk Officer     | openclaw | xai/grok-4                       | FAIL   | 5     | 2     | 1       | 0          |
-| Security Lead    | openclaw | github-copilot/claude-sonnet-4.6 | PASS   | 8     | 0     | 2       | 3          |
-| API Designer     | openclaw | github-copilot/gpt-5.1           | PASS   | 9     | 0     | 0       | 2          |
+| Reviewer         | Status | Score | ERROR | WARNING | SUGGESTION |
+|------------------|--------|-------|-------|---------|------------|
+| Risk Officer     | FAIL   | 5     | 2     | 1       | 0          |
+| Security Lead    | PASS   | 8     | 0     | 2       | 3          |
+| API Designer     | PASS   | 9     | 0     | 0       | 2          |
 
 Unresolved disagreements: 1
-  - risk-01: Risk Officer (grok-4) vs API Designer (gpt-5.1) — severity disputed (user_action_required: true, urgency: high)
+  - risk-01: Risk Officer vs API Designer — severity disputed (user_action_required: true, urgency: high)
 
 chair_justification: "Outcome is REQUEST_CHANGES because risk-01 is a blocker per Risk Officer mandate. API Designer finding api-03 deprioritized — style preference, not blocking."
 
