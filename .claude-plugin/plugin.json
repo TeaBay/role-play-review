@@ -1,0 +1,15 @@
+{
+  "name": "role-play-review",
+  "version": "3.1.0",
+  "description": "Role-based review system with lite mode for fast reviews and council mode for chaired deliberation",
+  "author": "TeaBay",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "role-play-review",
+      "aliases": ["rpr"],
+      "file": "SKILL.md",
+      "description": "Multi-perspective review with role-grounded expert findings, disagreements, and decision paths"
+    }
+  ]
+}

@@ -54,25 +54,54 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 
 ### Examples
 
+Natural language works — flags are optional:
+
 ```text
-/rpr Review src/auth/
-/rpr --mode lite Review docs/api.md
-/rpr --mode council --profile crypto-bot Review docs/strategy.md
-/rpr --mode council Review docs/design.md
-/rpr --ci --output json Review src/
+/rpr Review src/auth/                          # council (default)
+/rpr quick Review docs/api.md                  # lite, single-pass
+/rpr with security-review Review src/          # council + profile
+/rpr Review src/api/ and fix                   # council + auto-fix
+/rpr --ci -j Review src/                       # CI pipeline
 ```
 
-### Key Options
+### Your First Council Review
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--mode lite\|council` | `lite` | Review mode |
-| `--profile <name>` | — | Load a review contract YAML |
-| `--auto-fix safe\|on\|off` | `safe` | Auto-fix behaviour |
-| `--max-reviewers N` | `8` | Cap number of reviewers |
-| `--role "<name>"` | — | Run a single reviewer only |
-| `--ci` | `false` | Headless / CI mode |
-| `--output prose\|json\|markdown` | `prose` | Output format |
+```bash
+# 1. Pick a profile
+ls profiles/
+#  api-design.yaml   code-quality.yaml   security-review.yaml
+
+# 2. Run it
+/rpr with security-review Review src/auth/
+
+# 3. That's it — the profile defines who reviews, how they conflict, and when to stop.
+```
+
+Want a custom council? Copy any profile and edit the `roles` and `conflict_pairs`.
+
+### Built-in Profiles
+
+| Profile | Roles | Best for |
+|---------|-------|----------|
+| `security-review` | Security Engineer, Platform Ops, AppSec Reviewer | Auth, data handling, secrets, infra |
+| `api-design` | API Designer, Consumer Advocate, SRE | Endpoints, contracts, error handling |
+| `code-quality` | Architect, Pragmatist, Test Engineer | Refactors, new modules, PRs |
+
+### Options
+
+Flags and natural language are interchangeable. Use whichever is clearer.
+
+| Flag | Shorthand | Natural language | Default |
+|------|-----------|-----------------|---------|
+| `--mode lite` | `--quick` | `quick review` | `council` |
+| `--profile <name>` | — | `with <name>` | — |
+| `--auto-fix on` | `--fix` | `and fix` | `safe` |
+| `--auto-fix off` | `--no-fix` | `don't fix` | `safe` |
+| `--output json` | `-j` | — | `prose` |
+| `--output markdown` | `-md` | — | `prose` |
+| `--max-reviewers N` | `-n N` | `with N reviewers` | `8` |
+| `--role "<name>"` | — | — | — |
+| `--ci` | — | — | `false` |
 
 ## Example Output
 

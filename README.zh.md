@@ -54,25 +54,54 @@ cp role-play-review/SKILL.md ~/.claude/skills/role-play-review.md
 
 ### 使用示例
 
+自然語言同 flag 都得——揀你覺得清楚嘅寫法：
+
 ```text
-/rpr Review src/auth/
-/rpr --mode lite Review docs/api.md
-/rpr --mode council --profile crypto-bot Review docs/strategy.md
-/rpr --mode council Review docs/design.md
-/rpr --ci --output json Review src/
+/rpr Review src/auth/                          # council（預設）
+/rpr quick Review docs/api.md                  # lite，快速單輪
+/rpr with security-review Review src/          # council + profile
+/rpr Review src/api/ and fix                   # council + 自動修正
+/rpr --ci -j Review src/                       # CI 流水線
 ```
 
-### 主要選項
+### 你的第一次 Council Review
 
-| 選項 | 預設值 | 說明 |
-|------|--------|------|
-| `--mode lite\|council` | `lite` | 審查模式 |
-| `--profile <name>` | — | 載入審查合約 YAML |
-| `--auto-fix safe\|on\|off` | `safe` | 自動修復行為 |
-| `--max-reviewers N` | `8` | 審查員上限 |
-| `--role "<name>"` | — | 只執行單一審查員 |
-| `--ci` | `false` | Headless / CI 模式 |
-| `--output prose\|json\|markdown` | `prose` | 輸出格式 |
+```bash
+# 1. 選一個 profile
+ls profiles/
+#  api-design.yaml   code-quality.yaml   security-review.yaml
+
+# 2. 執行
+/rpr with security-review Review src/auth/
+
+# 3. 就這樣——profile 定義了誰來審查、他們如何衝突、何時結束。
+```
+
+想要自定義 council？複製任何 profile，修改 `roles` 和 `conflict_pairs` 即可。
+
+### 內建 Profiles
+
+| Profile | 角色 | 適用場景 |
+|---------|------|----------|
+| `security-review` | Security Engineer、Platform Ops、AppSec Reviewer | 認證、資料處理、密鑰、基建 |
+| `api-design` | API Designer、Consumer Advocate、SRE | 端點、合約、錯誤處理 |
+| `code-quality` | Architect、Pragmatist、Test Engineer | 重構、新模組、PR |
+
+### 選項
+
+Flag 同自然語言可以互換，揀你覺得清楚嘅寫法。
+
+| Flag | 簡寫 | 自然語言 | 預設值 |
+|------|------|----------|--------|
+| `--mode lite` | `--quick` | `quick review` | `council` |
+| `--profile <name>` | — | `with <name>` | — |
+| `--auto-fix on` | `--fix` | `and fix` | `safe` |
+| `--auto-fix off` | `--no-fix` | `don't fix` | `safe` |
+| `--output json` | `-j` | — | `prose` |
+| `--output markdown` | `-md` | — | `prose` |
+| `--max-reviewers N` | `-n N` | `with N reviewers` | `8` |
+| `--role "<name>"` | — | — | — |
+| `--ci` | — | — | `false` |
 
 ## 輸出示例
 
