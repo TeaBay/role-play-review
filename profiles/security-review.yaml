@@ -1,0 +1,34 @@
+# Security Review Profile
+# Why these roles conflict: Security wants to lock everything down,
+# Platform wants uptime and operability, AppSec lives in the code details.
+# The tension between "block it" vs "ship it safely" produces better decisions.
+
+name: security-review
+default_mode: council
+
+roles:
+  - id: security_engineer
+    mandate: "Find vulnerabilities: injection, auth bypass, data exposure, insecure defaults"
+  - id: platform_ops
+    mandate: "Assess blast radius, incident response readiness, and deployment safety"
+  - id: appsec_reviewer
+    mandate: "Evaluate input validation, secret handling, dependency risk, and trust boundaries"
+
+conflict_pairs:
+  - [security_engineer, platform_ops]
+
+discussion_budget:
+  speaking_turns_per_role: 2
+  max_total_turns: 8
+
+fix_safety:
+  auto_fix_enabled: false
+  require_human_confirm: true
+
+protected_paths:
+  - .env
+  - .env.*
+  - "*.pem"
+  - "*.key"
+  - secrets.*
+  - credentials.*

@@ -1,0 +1,29 @@
+# Code Quality Review Profile
+# Why these roles conflict: the architect pushes for clean structure,
+# the pragmatist pushes back on over-engineering, and the test engineer
+# demands coverage that both sides think is either too much or too little.
+# "Do it right" vs "ship it" vs "prove it works" is a productive tension.
+
+name: code-quality
+default_mode: council
+
+roles:
+  - id: architect
+    mandate: "Evaluate separation of concerns, dependency direction, naming, and abstraction level"
+  - id: pragmatist
+    mandate: "Challenge over-engineering, premature abstraction, and unnecessary complexity"
+  - id: test_engineer
+    mandate: "Assess testability, coverage gaps, edge cases, and regression risk"
+
+conflict_pairs:
+  - [architect, pragmatist]
+
+discussion_budget:
+  speaking_turns_per_role: 2
+  max_total_turns: 8
+
+fix_safety:
+  auto_fix_enabled: true
+  require_human_confirm: true
+
+protected_paths: []

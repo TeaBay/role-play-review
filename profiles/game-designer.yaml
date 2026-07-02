@@ -1,0 +1,56 @@
+name: game-designer
+description: |
+  Game Designer — Weapon Attack System Review.
+  Comprehensive review of weapon attack system design.
+  Validates: balance, UX/accessibility, design alignment, solo viability, difficulty scaling, wuxia genre consistency.
+
+default_mode: council
+
+roles:
+  - id: balance_reviewer
+    mandate: |
+      Validate numerical balance: damage multipliers (1.5×/0.6×), DPS curves, 1P/2P/3P scaling consistency.
+      Ensure attack patterns don't break difficulty progression or create exploits.
+
+  - id: ux_accessibility_reviewer
+    mandate: |
+      Validate visual feedback clarity, operation window feel (frame-perfect vs. natural), particle effects visibility.
+      Ensure WCAG AA accessibility (color contrast, text readability, keyboard navigation).
+
+  - id: design_alignment_reviewer
+    mandate: |
+      Verify DESIGN.md consistency: color tokens, fonts, visual specs, attack animation style.
+      Check documentation updates needed (DESIGN.md §3.3 + §2.6).
+
+  - id: solo_viability_reviewer
+    mandate: |
+      Ensure movement attacks enable solo combat progression (dash+backstab, charge+escape, whirlwind+crowd control).
+      Validate solo challenge level and resource pacing.
+
+  - id: difficulty_scaling_reviewer
+    mandate: |
+      Verify 1P/2P/3P damage curves remain consistent (relative gain +25% uniform).
+      Validate co-op knockback and crowd control mechanics don't create softlock scenarios.
+
+  - id: wuxia_genre_reviewer
+    mandate: |
+      Validate cultivation system integration (靈根 synchronization with weapons).
+      Check story coherence: attack patterns fit wuxia narrative and sword-spirit lore.
+      Ensure no out-of-character mechanics for the setting.
+
+conflict_pairs:
+  - [balance_reviewer, solo_viability_reviewer]
+  - [ux_accessibility_reviewer, balance_reviewer]
+
+discussion_budget:
+  speaking_turns_per_role: 2
+  max_total_turns: 12
+
+fix_safety:
+  auto_fix_enabled: false
+  require_human_confirm: false
+
+protected_paths:
+  - data/weapons.json
+  - src/systems/HitDetection.js
+  - src/systems/ActionPhaseSystem.js

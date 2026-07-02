@@ -17,27 +17,32 @@ metadata:
 
 ```text
 /rpr Review src/auth/
-/rpr --mode lite Review docs/api.md
-/rpr --mode council --profile crypto-bot Review docs/polymarket-bot.md
-/rpr --mode council Review docs/strategy.md
-/rpr --ci --output json Review src/
+/rpr quick Review docs/api.md
+/rpr with security-review profile Review src/
+/rpr --ci -j Review src/
 ```
 
-`--mode auto` is forbidden and must fail immediately.
+Natural language and flags are interchangeable — `/rpr --profile security-review Review src/auth/`, `/rpr with security-review Review src/auth/`, and `/rpr security review src/auth/` all do the same thing.
 
 ---
 
 ## Parameters
 
+Flags are one way to invoke RPR. Natural language is equally valid — the LLM interprets intent, not an argument parser. Use whichever is clearer for your case.
+
 ```text
-MODE = lite | council          // --mode lite|council; default lite
-PROFILE = null                 // --profile <name>
-MAX_REVIEWERS = 8              // --max-reviewers N
-AUTO_FIX = safe | off | on    // --auto-fix <mode>; default safe
-OUTPUT_FORMAT = prose          // --output prose|json|markdown
-ROLE_FILTER = null             // --role "<name>" — single reviewer, no roundtable
-CI_MODE = false                // --ci
+MODE = lite | council          // default council
+PROFILE = null                 // review contract
+MAX_REVIEWERS = 8              // cap reviewers
+AUTO_FIX = safe | off | on    // default safe
+OUTPUT_FORMAT = prose          // prose|json|markdown
+ROLE_FILTER = null             // single reviewer, no roundtable
+CI_MODE = false                // headless pipeline mode
 ```
+
+Shorthands: `--quick` = lite mode · `--fix`/`--no-fix` = auto-fix on/off · `-j`/`-md` = json/markdown output · `-n N` = max reviewers.
+
+Profile name resolution: `--profile security-review` → looks for `profiles/security-review.yaml` in the skill directory.
 
 ---
 
@@ -68,23 +73,17 @@ You are the **Chair**: moderator and synthesizer, not a domain reviewer and not 
 
 ## Contract Resolution
 
-1. `--mode auto` → fail with: `error: --mode auto is not supported.`
-2. `--mode lite` → lite mode
-3. `--mode council` → council mode
-4. profile present, no mode flag → use `profile.default_mode`
-5. otherwise → lite mode
+1. `--mode lite` or `--quick` or natural language requesting quick/fast/lite → lite mode
+2. `--mode council` or explicit council request → council mode
+3. profile present, no mode flag → use `profile.default_mode`
+4. otherwise → council mode
 
 ### Council Without Profile — MVC Gate
 
-```text
-⚠️  Council mode needs a review contract.
-    Using defaults (Chair + 2 Reviewers, 6 turns, no auto-fix).
-    Press Enter to proceed, or pass --profile <name> for a custom contract.
-    Use --verbose to see the full default contract.
-```
+Council mode without a profile falls back to MVC defaults (Chair + 2 Reviewers, 6 turns, no auto-fix).
 
-- Enter / `y` → continue
-- `N` → exit with guidance to use `--profile`
+- If the user asked for the review in one shot (did not ask to choose a profile): **auto-accept the defaults silently and proceed** — do not interrupt with a confirmation step.
+- Otherwise confirm via the AskUserQuestion tool (options: "Use defaults" / "Pick a profile", listing available `profiles/*.yaml` names in the description). Never ask the user to "press Enter" or type y/N — that interaction does not exist in this harness.
 - `--ci` → auto-accept, emit: `[WARN] Using MVC defaults for council mode`
 
 ### Profile Schema
@@ -136,7 +135,6 @@ Generate all reviewer perspectives before synthesizing. Each reviewer must:
 {
   "reviewer": "Risk Officer",
   "status": "ok",
-  "score": 6,
   "findings": [
     {
       "id": "risk-01",
@@ -145,16 +143,11 @@ Generate all reviewer perspectives before synthesizing. Each reviewer must:
       "why_it_matters": "...",
       "recommendation": "..."
     }
-  ],
-  "responses": [
-    {
-      "finding_id_responded_to": "quant-01",
-      "response_type": "disagree",
-      "reason": "..."
-    }
   ]
 }
 ```
+
+First-pass reviews are generated independently — reviewers have not seen each other's findings yet, so there is no `responses` field here. Disagreement between reviewers happens in the roundtable/council stage (Part 3), not in the first pass.
 
 ---
 
@@ -162,7 +155,7 @@ Generate all reviewer perspectives before synthesizing. Each reviewer must:
 
 Each reviewer speaks once. No conflict-round loop. Chair synthesizes.
 
-If reviewers materially disagree → record disagreement, hand decision to user. Do not attempt roundtable resolution. Recommend `--mode council` if deeper deliberation is needed.
+If reviewers materially disagree → record disagreement, hand decision to user. Do not attempt roundtable resolution. Recommend council mode if deeper deliberation is needed.
 
 ---
 
@@ -173,8 +166,8 @@ If reviewers materially disagree → record disagreement, hand decision to user.
 **Allowed council actions**: support · disagree with reasons · conditional support · propose alternative · escalate risk · mark as user-decision
 
 **Turn budget** (mandatory, not advisory):
-- Chair emits turn tracker before each intervention: `Turn tracker: [role_a: 1/2, role_b: 0/2, total: 1/6]`
-- Role exhausts turns → further interventions logged as `turn_rejected`
+- Track turns internally against `speaking_turns_per_role` and `max_total_turns`
+- Role exhausts its turns → it does not speak again on that agenda
 - Session hits `max_total_turns` → Chair must issue outcome or `NO_DECISION`
 
 ---
@@ -189,7 +182,6 @@ These must be emitted. Omitting any is a behavioral failure.
 | `unresolved_disagreements` (array, empty OK) | ✓ | ✓ |
 | `deprioritized_items` | — | ✓ |
 | `reviewer_status` per reviewer | ✓ | ✓ |
-| Turn tracker line per council turn | — | ✓ |
 
 `chair_justification` format: `"Outcome is X because [reasons]. [Finding Y] deprioritized because [reason]."`
 
@@ -206,6 +198,7 @@ These must be emitted. Omitting any is a behavioral failure.
 | `NO_DECISION` | session ended without safe outcome | never fix | never fix | fail |
 
 **AUTO_FIX rules:**
+0. `safe` (the default) = run fix only on `REQUEST_CHANGES`, always honoring `protected_paths` and `require_human_confirm`; every other outcome behaves as "off"
 1. `VETO` and `NO_DECISION` always block auto-fix
 2. `protected_paths` are never modified
 3. `require_human_confirm: true` → show diff, wait for confirmation

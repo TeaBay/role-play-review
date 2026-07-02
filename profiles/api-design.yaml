@@ -1,0 +1,29 @@
+# API Design Review Profile
+# Why these roles conflict: the API designer wants clean abstractions,
+# the consumer advocate wants minimal learning curve, and the SRE
+# wants observability and failure handling. "Elegant" vs "easy" vs "operable"
+# forces real trade-off conversations.
+
+name: api-design
+default_mode: council
+
+roles:
+  - id: api_designer
+    mandate: "Evaluate naming, resource modeling, consistency, versioning, and HTTP semantics"
+  - id: consumer_advocate
+    mandate: "Judge from the caller's perspective: discoverability, error messages, migration cost"
+  - id: sre
+    mandate: "Assess rate limiting, timeout behavior, retry safety, observability, and failure modes"
+
+conflict_pairs:
+  - [api_designer, consumer_advocate]
+
+discussion_budget:
+  speaking_turns_per_role: 2
+  max_total_turns: 8
+
+fix_safety:
+  auto_fix_enabled: true
+  require_human_confirm: true
+
+protected_paths: []
